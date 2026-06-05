@@ -1,36 +1,52 @@
-# [Project name]
+# FounderAI
 
-_Replace the heading above with the project's name, and this line with one sentence describing what this app does for users._
+A Gemini-powered startup co-founder agent that uses MongoDB Atlas as its long-term memory and knowledge store. Describe a startup idea once and the agent researches it, generates a business plan, commits MVP code to GitLab, and stores every decision in MongoDB with vector search for semantic recall.
 
 ## Run & Operate
 
-- `pnpm --filter @workspace/api-server run dev` — run the API server (port 5000)
+- `pnpm --filter @workspace/api-server run dev` — run the API server (port 8080)
+- `pnpm --filter @workspace/founder-ai run dev` — run the React frontend (port 25927)
 - `pnpm run typecheck` — full typecheck across all packages
 - `pnpm run build` — typecheck + build all packages
 - `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec
-- `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
-- Required env: `DATABASE_URL` — Postgres connection string
 
 ## Stack
 
 - pnpm workspaces, Node.js 24, TypeScript 5.9
-- API: Express 5
-- DB: PostgreSQL + Drizzle ORM
-- Validation: Zod (`zod/v4`), `drizzle-zod`
-- API codegen: Orval (from OpenAPI spec)
+- API: Express 5 + MongoDB Atlas
+- AI: Google Gemini 2.5 Flash (generateContent + embedContent)
+- DB: MongoDB Atlas (sessions + memories collections)
+- Validation: Zod (`zod/v4`), Orval codegen
 - Build: esbuild (CJS bundle)
+- Frontend: React + Vite + Wouter + TanStack Query + shadcn/ui
 
 ## Where things live
 
-_Populate as you build — short repo map plus pointers to the source-of-truth file for DB schema, API contracts, theme files, etc._
+- `lib/api-spec/openapi.yaml` — API contract (source of truth)
+- `lib/api-client-react/src/generated/` — React Query hooks (generated)
+- `lib/api-zod/src/generated/` — Zod schemas (generated)
+- `artifacts/api-server/src/lib/agents/` — 4 AI agents (orchestrator, research, businessPlan, mvpBuilder)
+- `artifacts/api-server/src/lib/mongodb.ts` — MongoDB Atlas client
+- `artifacts/api-server/src/lib/gemini.ts` — Gemini AI client
+- `artifacts/api-server/src/lib/memory.ts` — Memory save/recall (vector + text fallback)
+- `artifacts/api-server/src/routes/` — Express route handlers
+- `artifacts/founder-ai/src/` — React frontend
 
 ## Architecture decisions
 
-_Populate as you build — non-obvious choices a reader couldn't infer from the code (3-5 bullets)._
+- MongoDB Atlas stores all sessions and memories; no Postgres/Drizzle used (MongoDB is the primary DB)
+- Vector search uses MongoDB Atlas $vectorSearch aggregation pipeline with text-embedding-004 embeddings; falls back to text search if index not set up
+- Each agent (Orchestrator, Research, BusinessPlan, MVP Builder) runs sequentially and saves memories to MongoDB after completion
+- GitLab repo creation and file commits happen via GitLab REST API v4 in the MVP Builder agent
+- SSE (Server-Sent Events) streams agent progress to the frontend during the run
 
 ## Product
 
-_Describe the high-level user-facing capabilities of this app once they exist._
+- **Dashboard** — overview stats (sessions, memories, GitLab repos) + recent sessions
+- **New Analysis** — submit a startup idea to trigger all 4 agents
+- **Session Detail** — real-time agent progress via SSE, full results for each agent, GitLab repo link, memory tab
+- **Sessions List** — all past analyses with status and progress
+- **Memory Explorer** — semantic vector search over all stored insights and findings
 
 ## User preferences
 
@@ -38,7 +54,10 @@ _Populate as you build — explicit user instructions worth remembering across s
 
 ## Gotchas
 
-_Populate as you build — sharp edges, "always run X before Y" rules._
+- **MongoDB Atlas IP Whitelist**: Must add `0.0.0.0/0` (Allow Access from Anywhere) in Atlas → Network Access, or the server gets a TLS SSL error and cannot connect
+- **Vector Search Index**: Must create a vector search index named `vector_index` on the `memories` collection with path `embedding` (768 dims for text-embedding-004) in Atlas before semantic recall works. Falls back to text search if the index doesn't exist.
+- **Gemini embeddings**: Uses `text-embedding-004` model via the `ai.models.embedContent()` API. This is separate from content generation.
+- After any OpenAPI spec change, run `pnpm --filter @workspace/api-spec run codegen` before using updated types.
 
 ## Pointers
 

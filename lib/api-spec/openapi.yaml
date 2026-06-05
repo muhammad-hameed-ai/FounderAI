@@ -1,22 +1,27 @@
 openapi: 3.1.0
 info:
-  # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: FounderAI API specification
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: sessions
+    description: Startup idea sessions
+  - name: agents
+    description: Agent operations
+  - name: memory
+    description: MongoDB memory and recall
+
 paths:
   /healthz:
     get:
       operationId: healthCheck
       tags: [health]
       summary: Health check
-      description: Returns server health status
       responses:
         "200":
           description: Healthy
@@ -24,6 +29,177 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  /sessions:
+    get:
+      operationId: listSessions
+      tags: [sessions]
+      summary: List all startup sessions
+      responses:
+        "200":
+          description: List of sessions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Session"
+    post:
+      operationId: createSession
+      tags: [sessions]
+      summary: Create a new startup session
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SessionInput"
+      responses:
+        "201":
+          description: Created session
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Session"
+
+  /sessions/{id}:
+    get:
+      operationId: getSession
+      tags: [sessions]
+      summary: Get a single session with all agent results
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Session detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SessionDetail"
+        "404":
+          description: Not found
+
+    delete:
+      operationId: deleteSession
+      tags: [sessions]
+      summary: Delete a session
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeleteResult"
+
+  /sessions/{id}/run:
+    post:
+      operationId: runAgents
+      tags: [agents]
+      summary: Run all agents for a session (orchestrate, research, business plan, MVP)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Agent run initiated (streaming SSE)
+
+  /sessions/{id}/status:
+    get:
+      operationId: getSessionStatus
+      tags: [agents]
+      summary: Get the current agent run status for a session
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Agent status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentStatus"
+
+  /memory/recall:
+    post:
+      operationId: recallMemory
+      tags: [memory]
+      summary: Semantic vector search over all stored memories
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RecallQuery"
+      responses:
+        "200":
+          description: Recalled memories
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/MemoryRecord"
+
+  /memory/list:
+    get:
+      operationId: listMemories
+      tags: [memory]
+      summary: List recent memories with optional session filter
+      parameters:
+        - name: sessionId
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: type
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: List of memories
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/MemoryRecord"
+
+  /dashboard/stats:
+    get:
+      operationId: getDashboardStats
+      tags: [sessions]
+      summary: Dashboard summary stats
+      responses:
+        "200":
+          description: Stats
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DashboardStats"
+
 components:
   schemas:
     HealthStatus:
@@ -31,6 +207,163 @@ components:
       properties:
         status:
           type: string
-      required:
-        - status
+      required: [status]
 
+    Session:
+      type: object
+      required: [id, title, idea, status, createdAt]
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        idea:
+          type: string
+        status:
+          type: string
+          enum: [pending, running, completed, failed]
+        createdAt:
+          type: string
+        updatedAt:
+          type: ["string", "null"]
+        agentProgress:
+          type: ["object", "null"]
+          properties:
+            orchestrator:
+              type: string
+              enum: [pending, running, done, failed]
+            research:
+              type: string
+              enum: [pending, running, done, failed]
+            businessPlan:
+              type: string
+              enum: [pending, running, done, failed]
+            mvpBuilder:
+              type: string
+              enum: [pending, running, done, failed]
+
+    SessionInput:
+      type: object
+      required: [idea]
+      properties:
+        idea:
+          type: string
+          minLength: 10
+
+    SessionDetail:
+      type: object
+      required: [id, title, idea, status, createdAt]
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        idea:
+          type: string
+        status:
+          type: string
+          enum: [pending, running, completed, failed]
+        createdAt:
+          type: string
+        updatedAt:
+          type: ["string", "null"]
+        agentProgress:
+          type: ["object", "null"]
+          properties:
+            orchestrator:
+              type: string
+            research:
+              type: string
+            businessPlan:
+              type: string
+            mvpBuilder:
+              type: string
+        orchestratorResult:
+          type: ["object", "null"]
+          additionalProperties: true
+        researchResult:
+          type: ["object", "null"]
+          additionalProperties: true
+        businessPlanResult:
+          type: ["object", "null"]
+          additionalProperties: true
+        mvpResult:
+          type: ["object", "null"]
+          additionalProperties: true
+        gitlabUrl:
+          type: ["string", "null"]
+        memoryCount:
+          type: ["integer", "null"]
+
+    AgentStatus:
+      type: object
+      required: [sessionId, status]
+      properties:
+        sessionId:
+          type: string
+        status:
+          type: string
+          enum: [pending, running, completed, failed]
+        agentProgress:
+          type: ["object", "null"]
+          additionalProperties: true
+        error:
+          type: ["string", "null"]
+
+    RecallQuery:
+      type: object
+      required: [query]
+      properties:
+        query:
+          type: string
+          minLength: 1
+        sessionId:
+          type: ["string", "null"]
+        limit:
+          type: ["integer", "null"]
+
+    MemoryRecord:
+      type: object
+      required: [id, sessionId, type, content, createdAt]
+      properties:
+        id:
+          type: string
+        sessionId:
+          type: string
+        type:
+          type: string
+        content:
+          type: string
+        metadata:
+          type: ["object", "null"]
+          additionalProperties: true
+        score:
+          type: ["number", "null"]
+        createdAt:
+          type: string
+
+    DashboardStats:
+      type: object
+      required: [totalSessions, completedSessions, totalMemories, recentSessions]
+      properties:
+        totalSessions:
+          type: integer
+        completedSessions:
+          type: integer
+        totalMemories:
+          type: integer
+        gitlabRepos:
+          type: integer
+        recentSessions:
+          type: array
+          items:
+            $ref: "#/components/schemas/Session"
+
+    DeleteResult:
+      type: object
+      required: [success]
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string

@@ -1,0 +1,1 @@
+- [MongoDB Atlas TLS + Vector Search](mongodb-atlas-setup.md) — Atlas blocks all IPs by default; must whitelist 0.0.0.0/0 and create vector_index on memories collection
