@@ -1,0 +1,53 @@
+Day 1 — Today (June 4)3 hours
+1
+Edit Devpost → keep only MongoDB track selected
+2
+Submit Google Cloud credit form — find it on the hackathon page, do it before midnight today (deadline is June 4)
+3
+Get Gemini API key → aistudio.google.com → Get API Key → free, instant
+4
+Install Google ADK → pip install google-adk pymongo python-dotenv
+5
+Create MongoDB Atlas cluster → redeem from GitHub Student Pack → get connection string
+Day 2 — June 55 hours
+1
+Build the Orchestrator Agent using Google ADK — takes startup idea, decomposes into JSON using Gemini
+2
+Build the Memory Agent — saves to MongoDB, retrieves by session ID, test it works
+3
+Test end to end — type a startup idea, see it saved in MongoDB Atlas dashboard → proof it works
+Day 3 — June 65 hours
+1
+Build Market Research Agent — Gemini researches the idea, finds competitors, saves findings to MongoDB
+2
+Add MongoDB vector search — embed agent outputs, enable semantic recall ("what did you find about fintech?")
+3
+Test the follow-up memory — run it, ask a follow-up question, see it retrieve from MongoDB semantically
+Day 4 — June 75 hours
+1
+Build MVP Builder Agent — GitLab API creates repo + commits code files. This is your showstopper demo moment.
+2
+Build Business Plan Agent — Gemini generates structured business plan, saves to MongoDB with full metadata
+3
+Wire all agents together — Orchestrator fires all 3 agents, collects outputs, saves everything to MongoDB
+Day 5 — June 85 hours
+1
+Build simple web UI — one input box, one submit button, results shown below. Nothing fancy. Flask or FastAPI backend.
+2
+Deploy to DigitalOcean (from GitHub Student Pack) — get a public URL for your Devpost submission
+3
+Get free domain from Namecheap (Student Pack) → point to DigitalOcean → URL looks like founderai.me
+Day 6 — June 94 hours
+1
+Push all code to GitHub — clean up, add README, make sure MIT license is visible in the About section
+2
+Record demo with Loom — show the full flow live: type idea → agents run → MongoDB Atlas shows data → GitLab repo created
+3
+Update Devpost submission — add GitHub repo URL, hosted project URL, new demo video link
+Day 7 — June 10 (buffer day)Submit by midnight
+1
+Fix anything that broke — deployment issues, API errors, UI bugs
+2
+Final submission check — hosted URL works ✓ GitHub repo public ✓ MIT license visible ✓ video under 3 min ✓ MongoDB track selected ✓
+3
+Submit 24 hours before deadline — never submit at the last minute. Systems crash. Submit June 10 night.
