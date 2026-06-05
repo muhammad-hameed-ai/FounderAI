@@ -7,6 +7,18 @@ if (!uri) {
   throw new Error("MONGODB_URI environment variable is required");
 }
 
+// Diagnostic: log username and host (never the password)
+try {
+  const url = new URL(uri.replace("mongodb+srv://", "https://").replace("mongodb://", "https://"));
+  logger.info({
+    mongoUser: url.username,
+    mongoHost: url.hostname,
+    uriPrefix: uri.substring(0, 14),
+  }, "MongoDB URI diagnostic");
+} catch {
+  logger.warn("Could not parse MONGODB_URI for diagnostics");
+}
+
 const client = new MongoClient(uri, {
   serverApi: {
     version: ServerApiVersion.v1,
