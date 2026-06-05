@@ -1,4 +1,4 @@
-import { generateWithGemini } from "../gemini";
+import { generateWithGemini, generateEmbedding } from "../gemini";
 import { saveMemory } from "../memory";
 import { logger } from "../logger";
 import type { OrchestratorResult } from "./orchestrator";
@@ -91,15 +91,18 @@ Be specific, realistic, and compelling. Return only valid JSON.`;
     throw new Error("Business Plan agent returned invalid JSON");
   }
 
+  const planContent = `Business Plan for ${orchestratorResult.title}: ${result.executiveSummary.substring(0, 300)}. Mission: ${result.missionStatement}. Funding: ${result.fundingRequirements}. Year 1 revenue: ${result.financialProjections[0]?.revenue ?? "N/A"}`;
+  const planEmbedding = await generateEmbedding(planContent).catch(() => []);
   await saveMemory(
     sessionId,
     "business_plan",
-    `Business Plan for ${orchestratorResult.title}: ${result.executiveSummary.substring(0, 300)}...`,
+    planContent,
     {
       fundingRequirements: result.fundingRequirements,
       year1Revenue: result.financialProjections[0]?.revenue,
       missionStatement: result.missionStatement,
-    }
+    },
+    planEmbedding
   );
 
   logger.info({ sessionId }, "Business Plan Agent complete");

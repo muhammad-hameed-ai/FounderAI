@@ -1,4 +1,4 @@
-import { generateWithGemini, generateTextWithGemini } from "../gemini";
+import { generateWithGemini, generateTextWithGemini, generateEmbedding } from "../gemini";
 import { saveMemory } from "../memory";
 import { logger } from "../logger";
 import type { OrchestratorResult } from "./orchestrator";
@@ -174,16 +174,19 @@ Generate 4-6 real code files including: README.md, main application file, requir
 
   const finalResult: MvpResult = { ...result, gitlabUrl };
 
+  const mvpContent = `MVP for ${orchestratorResult.title}: ${result.features.length} features including ${result.features.slice(0, 3).join(", ")}. ${result.codeFiles.length} code files generated. Tech stack: ${result.techStack.join(", ")}. Architecture: ${result.architecture}. GitLab: ${gitlabUrl ?? "not created"}`;
+  const mvpEmbedding = await generateEmbedding(mvpContent).catch(() => []);
   await saveMemory(
     sessionId,
     "mvp",
-    `MVP for ${orchestratorResult.title}: ${result.features.length} features, ${result.codeFiles.length} code files generated. Tech stack: ${result.techStack.join(", ")}. GitLab: ${gitlabUrl ?? "not created"}`,
+    mvpContent,
     {
       repoName: result.repoName,
       gitlabUrl,
       fileCount: result.codeFiles.length,
       techStack: result.techStack,
-    }
+    },
+    mvpEmbedding
   );
 
   logger.info({ sessionId, gitlabUrl }, "MVP Builder Agent complete");

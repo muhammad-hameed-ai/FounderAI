@@ -1,4 +1,4 @@
-import { generateWithGemini } from "../gemini";
+import { generateWithGemini, generateEmbedding } from "../gemini";
 import { saveMemory } from "../memory";
 import { logger } from "../logger";
 import type { OrchestratorResult } from "./orchestrator";
@@ -71,27 +71,33 @@ Include 3-5 realistic competitors. Be specific with market data. Return only val
     throw new Error("Research agent returned invalid JSON");
   }
 
+  const researchContent = `Market Research for ${orchestratorResult.title}: Market size ${result.marketSize}, growth ${result.marketGrowthRate}. ${result.competitors.length} competitors analyzed. Key insight: ${result.keyInsights[0] ?? ""}. Competitive advantage: ${result.competitiveAdvantage}`;
+  const researchEmbedding = await generateEmbedding(researchContent).catch(() => []);
   await saveMemory(
     sessionId,
     "research",
-    `Market Research for ${orchestratorResult.title}: Market size ${result.marketSize}, ${result.competitors.length} competitors analyzed. Key insight: ${result.keyInsights[0] ?? ""}`,
+    researchContent,
     { marketSize: result.marketSize, competitorCount: result.competitors.length }
-  );
+  , researchEmbedding);
 
   for (const competitor of result.competitors) {
+    const compContent = `Competitor: ${competitor.name} - ${competitor.description}. Strengths: ${competitor.strengths.join(", ")}. Weaknesses: ${competitor.weaknesses.join(", ")}`;
+    const compEmbedding = await generateEmbedding(compContent).catch(() => []);
     await saveMemory(
       sessionId,
       "competitor",
-      `Competitor: ${competitor.name} - ${competitor.description}. Strengths: ${competitor.strengths.join(", ")}. Weaknesses: ${competitor.weaknesses.join(", ")}`,
-      { competitorName: competitor.name, fundingStage: competitor.fundingStage }
+      compContent,
+      { competitorName: competitor.name, fundingStage: competitor.fundingStage },
+      compEmbedding
     );
   }
 
   for (const insight of result.keyInsights) {
+    const insightEmbedding = await generateEmbedding(insight).catch(() => []);
     await saveMemory(sessionId, "insight", insight, {
       source: "market_research",
       startup: orchestratorResult.title,
-    });
+    }, insightEmbedding);
   }
 
   logger.info({ sessionId, competitors: result.competitors.length }, "Research Agent complete");

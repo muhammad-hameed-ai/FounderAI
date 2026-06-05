@@ -1,4 +1,4 @@
-import { generateWithGemini } from "../gemini";
+import { generateWithGemini, generateEmbedding } from "../gemini";
 import { saveMemory } from "../memory";
 import { logger } from "../logger";
 
@@ -47,10 +47,12 @@ Be specific, realistic, and insightful. Return only valid JSON.`;
     throw new Error("Orchestrator agent returned invalid JSON");
   }
 
-  await saveMemory(sessionId, "orchestrator", JSON.stringify(result), {
+  const memoryContent = `${result.title}: ${result.summary} Problem: ${result.problemStatement} Value: ${result.valueProposition}`;
+  const embedding = await generateEmbedding(memoryContent).catch(() => []);
+  await saveMemory(sessionId, "orchestrator", memoryContent, {
     title: result.title,
     problemStatement: result.problemStatement,
-  });
+  }, embedding);
 
   logger.info({ sessionId, title: result.title }, "Orchestrator Agent complete");
   return result;
