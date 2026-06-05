@@ -10,12 +10,31 @@ if (!apiKey) {
 export const ai = new GoogleGenAI({ apiKey });
 
 const MODEL = "gemini-2.5-flash";
+const MAX_ATTEMPTS = 5;
+
+function isRetryableError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  const msg = err.message;
+  return (
+    msg.includes("429") ||
+    msg.includes("503") ||
+    msg.includes("quota") ||
+    msg.includes("rate") ||
+    msg.includes("UNAVAILABLE") ||
+    msg.includes("high demand") ||
+    msg.includes("overloaded")
+  );
+}
+
+function retryDelay(attempt: number): number {
+  // Exponential backoff: 2s, 4s, 8s, 16s
+  return Math.min(2000 * Math.pow(2, attempt - 1), 20000);
+}
 
 export async function generateWithGemini(prompt: string, systemInstruction?: string): Promise<string> {
   let attempts = 0;
-  const maxAttempts = 3;
 
-  while (attempts < maxAttempts) {
+  while (attempts < MAX_ATTEMPTS) {
     try {
       const response = await ai.models.generateContent({
         model: MODEL,
@@ -29,12 +48,9 @@ export async function generateWithGemini(prompt: string, systemInstruction?: str
       return response.text ?? "";
     } catch (err: unknown) {
       attempts++;
-      const isRateLimit =
-        err instanceof Error &&
-        (err.message.includes("429") || err.message.includes("quota") || err.message.includes("rate"));
-      if (isRateLimit && attempts < maxAttempts) {
-        const delay = 1000 * Math.pow(2, attempts);
-        logger.warn({ attempts, delay }, "Gemini rate limit hit, retrying");
+      if (isRetryableError(err) && attempts < MAX_ATTEMPTS) {
+        const delay = retryDelay(attempts);
+        logger.warn({ attempts, delay, err: (err as Error).message }, "Gemini unavailable, retrying");
         await new Promise((r) => setTimeout(r, delay));
       } else {
         throw err;
@@ -46,9 +62,8 @@ export async function generateWithGemini(prompt: string, systemInstruction?: str
 
 export async function generateTextWithGemini(prompt: string, systemInstruction?: string): Promise<string> {
   let attempts = 0;
-  const maxAttempts = 3;
 
-  while (attempts < maxAttempts) {
+  while (attempts < MAX_ATTEMPTS) {
     try {
       const response = await ai.models.generateContent({
         model: MODEL,
@@ -61,12 +76,9 @@ export async function generateTextWithGemini(prompt: string, systemInstruction?:
       return response.text ?? "";
     } catch (err: unknown) {
       attempts++;
-      const isRateLimit =
-        err instanceof Error &&
-        (err.message.includes("429") || err.message.includes("quota") || err.message.includes("rate"));
-      if (isRateLimit && attempts < maxAttempts) {
-        const delay = 1000 * Math.pow(2, attempts);
-        logger.warn({ attempts, delay }, "Gemini rate limit hit, retrying");
+      if (isRetryableError(err) && attempts < MAX_ATTEMPTS) {
+        const delay = retryDelay(attempts);
+        logger.warn({ attempts, delay, err: (err as Error).message }, "Gemini text unavailable, retrying");
         await new Promise((r) => setTimeout(r, delay));
       } else {
         throw err;
@@ -78,9 +90,8 @@ export async function generateTextWithGemini(prompt: string, systemInstruction?:
 
 export async function generateEmbedding(text: string): Promise<number[]> {
   let attempts = 0;
-  const maxAttempts = 3;
 
-  while (attempts < maxAttempts) {
+  while (attempts < MAX_ATTEMPTS) {
     try {
       const response = await ai.models.embedContent({
         model: "text-embedding-004",
@@ -93,12 +104,9 @@ export async function generateEmbedding(text: string): Promise<number[]> {
       return embedding;
     } catch (err: unknown) {
       attempts++;
-      const isRateLimit =
-        err instanceof Error &&
-        (err.message.includes("429") || err.message.includes("quota") || err.message.includes("rate"));
-      if (isRateLimit && attempts < maxAttempts) {
-        const delay = 1000 * Math.pow(2, attempts);
-        logger.warn({ attempts, delay }, "Embedding rate limit hit, retrying");
+      if (isRetryableError(err) && attempts < MAX_ATTEMPTS) {
+        const delay = retryDelay(attempts);
+        logger.warn({ attempts, delay, err: (err as Error).message }, "Embedding unavailable, retrying");
         await new Promise((r) => setTimeout(r, delay));
       } else {
         throw err;
