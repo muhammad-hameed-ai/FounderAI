@@ -1,16 +1,33 @@
 import { Layout } from "@/components/layout";
 import { useGetSession, getGetSessionQueryKey, useListMemories, getListMemoriesQueryKey } from "@workspace/api-client-react";
 import { useParams } from "wouter";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { StatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Activity, Play, Terminal, Target, FileText, Code, CheckCircle2, AlertCircle, Loader2, GitMerge, Copy, ExternalLink, BrainCircuit, RefreshCw, Square } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import {
+  Activity, Play, Terminal, Target, FileText, Code,
+  CheckCircle2, AlertCircle, Loader2, GitMerge, Copy,
+  ExternalLink, BrainCircuit, RefreshCw, Square, ChevronDown,
+} from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { ScrollArea } from "@/components/ui/scroll-area";
+
+interface LogEntry {
+  agent: string;
+  message: string;
+  ts: number;
+}
+
+const AGENT_META: Record<string, { label: string; color: string; dot: string }> = {
+  orchestrator:  { label: "Orchestrator",    color: "text-blue-400",    dot: "bg-blue-500" },
+  research:      { label: "Market Research", color: "text-purple-400",  dot: "bg-purple-500" },
+  businessPlan:  { label: "Business Plan",   color: "text-emerald-400", dot: "bg-emerald-500" },
+  mvpBuilder:    { label: "MVP Builder",     color: "text-orange-400",  dot: "bg-orange-500" },
+};
 
 export default function SessionDetail() {
   const params = useParams();
@@ -22,13 +39,16 @@ export default function SessionDetail() {
   const [isStopping, setIsStopping] = useState(false);
   const [activeTab, setActiveTab] = useState("overview");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [logs, setLogs] = useState<LogEntry[]>([]);
+  const [logOpen, setLogOpen] = useState(true);
+  const logEndRef = useRef<HTMLDivElement>(null);
 
   const { data: session, isLoading, isError } = useGetSession(id, {
     query: {
       enabled: !!id,
       queryKey: getGetSessionQueryKey(id),
       refetchInterval: isRunning ? 2000 : 5000,
-    }
+    },
   });
 
   const { data: memories } = useListMemories(
@@ -37,21 +57,25 @@ export default function SessionDetail() {
       query: {
         enabled: !!id && activeTab === "memory",
         queryKey: getListMemoriesQueryKey({ sessionId: id }),
-      }
+      },
     }
   );
 
   useEffect(() => {
-    if (session?.status === "running") {
-      setIsRunning(true);
-    } else if (session?.status === "completed" || session?.status === "failed") {
-      setIsRunning(false);
-    }
+    if (session?.status === "running") setIsRunning(true);
+    else if (session?.status === "completed" || session?.status === "failed") setIsRunning(false);
   }, [session?.status]);
+
+  // Auto-scroll log to bottom
+  useEffect(() => {
+    if (logOpen) logEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [logs, logOpen]);
 
   const handleRunAgents = async () => {
     setIsRunning(true);
     setErrorMessage(null);
+    setLogs([]);
+    setLogOpen(true);
     toast({ title: "Agents Starting", description: "FounderAI is initializing all agents..." });
 
     try {
@@ -67,32 +91,34 @@ export default function SessionDetail() {
 
       const reader = response.body?.getReader();
       if (!reader) throw new Error("No reader stream");
-
       const decoder = new TextDecoder();
 
       while (true) {
         const { value, done } = await reader.read();
         if (done) break;
-
-        const chunk = decoder.decode(value);
-        const lines = chunk.split("\n");
+        const lines = decoder.decode(value).split("\n");
 
         for (const line of lines) {
-          if (line.startsWith("data: ")) {
-            try {
-              const data = JSON.parse(line.slice(6));
-              queryClient.invalidateQueries({ queryKey: getGetSessionQueryKey(id) });
+          if (!line.startsWith("data: ")) continue;
+          try {
+            const data = JSON.parse(line.slice(6));
 
-              if (data.type === "error") {
-                setErrorMessage(data.message ?? "An agent failed. You can retry.");
-              }
-              if (data.type === "completed") {
-                toast({ title: "Analysis Complete", description: "All 4 agents finished successfully!" });
-                queryClient.invalidateQueries({ queryKey: ["getDashboardStats"] });
-              }
-            } catch {
-              // ignore parse errors
+            if (data.type === "log") {
+              setLogs((prev) => [...prev, { agent: data.agent, message: data.message, ts: data.ts ?? Date.now() }]);
+              continue;
             }
+
+            queryClient.invalidateQueries({ queryKey: getGetSessionQueryKey(id) });
+
+            if (data.type === "error") {
+              setErrorMessage(data.message ?? "An agent failed. You can retry.");
+            }
+            if (data.type === "completed") {
+              toast({ title: "Analysis Complete ✓", description: "All 4 agents finished successfully!" });
+              queryClient.invalidateQueries({ queryKey: ["getDashboardStats"] });
+            }
+          } catch {
+            // ignore parse errors on partial chunks
           }
         }
       }
@@ -148,34 +174,32 @@ export default function SessionDetail() {
   }
 
   const agents = [
-    { id: "orchestrator", name: "Orchestrator", icon: Terminal, color: "text-blue-500" },
-    { id: "research", name: "Market Research", icon: Target, color: "text-purple-500" },
-    { id: "businessPlan", name: "Business Plan", icon: FileText, color: "text-primary" },
-    { id: "mvpBuilder", name: "MVP Builder", icon: Code, color: "text-[#FC6D26]" },
+    { id: "orchestrator", name: "Orchestrator",    icon: Terminal, color: "text-blue-500" },
+    { id: "research",     name: "Market Research", icon: Target,   color: "text-purple-500" },
+    { id: "businessPlan", name: "Business Plan",   icon: FileText, color: "text-primary" },
+    { id: "mvpBuilder",   name: "MVP Builder",     icon: Code,     color: "text-[#FC6D26]" },
   ] as const;
 
-  const isFailed = session.status === "failed";
+  const isFailed   = session.status === "failed";
   const isCompleted = session.status === "completed";
+  const showLogs = logs.length > 0;
 
   return (
     <Layout>
-      <div className="space-y-6 animate-in fade-in duration-500">
+      <div className="space-y-6 animate-in fade-in duration-300">
         {/* Header */}
         <div className="flex flex-col md:flex-row gap-4 justify-between items-start md:items-center">
           <div>
             <div className="flex items-center gap-3 mb-2">
-              <h1 className="text-3xl font-bold tracking-tight">
-                {session.title || "Untitled Project"}
-              </h1>
+              <h1 className="text-3xl font-bold tracking-tight">{session.title || "Untitled Project"}</h1>
               <StatusBadge status={session.status} />
             </div>
-            <p className="text-muted-foreground font-mono text-sm flex items-center gap-2">
+            <p className="text-muted-foreground font-mono text-sm">
               <span className="text-primary font-bold">ID:</span> {session.id.substring(0, 8)}...
             </p>
           </div>
 
           <div className="flex items-center gap-2">
-            {/* Stop button — only when running */}
             {isRunning && (
               <Button
                 onClick={handleStop}
@@ -183,16 +207,11 @@ export default function SessionDetail() {
                 variant="outline"
                 className="border-destructive/50 text-destructive hover:bg-destructive/10"
               >
-                {isStopping ? (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                ) : (
-                  <Square className="mr-2 h-4 w-4" />
-                )}
+                {isStopping ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Square className="mr-2 h-4 w-4" />}
                 Stop
               </Button>
             )}
 
-            {/* Retry button — only when failed */}
             {isFailed && !isRunning && (
               <Button
                 onClick={handleRunAgents}
@@ -204,7 +223,6 @@ export default function SessionDetail() {
               </Button>
             )}
 
-            {/* Main run / status button */}
             <Button
               onClick={handleRunAgents}
               disabled={isRunning || isCompleted}
@@ -231,26 +249,22 @@ export default function SessionDetail() {
                 {errorMessage ?? "One or more agents encountered an error. Completed agents will be skipped on retry."}
               </p>
             </div>
-            <Button
-              size="sm"
-              onClick={handleRunAgents}
-              className="shrink-0 bg-primary text-primary-foreground"
-            >
-              <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
-              Retry
+            <Button size="sm" onClick={handleRunAgents} className="shrink-0 bg-primary text-primary-foreground">
+              <RefreshCw className="mr-1.5 h-3.5 w-3.5" /> Retry
             </Button>
           </div>
         )}
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
           <TabsList className="bg-card border border-border w-full justify-start p-1 h-auto mb-6">
-            <TabsTrigger value="overview" className="data-[state=active]:bg-accent data-[state=active]:text-foreground py-2 px-4">Command Center</TabsTrigger>
-            <TabsTrigger value="results" className="data-[state=active]:bg-accent data-[state=active]:text-foreground py-2 px-4" disabled={!session.orchestratorResult && !session.researchResult}>Analysis Results</TabsTrigger>
-            <TabsTrigger value="memory" className="data-[state=active]:bg-accent data-[state=active]:text-foreground py-2 px-4 flex items-center gap-2">
+            <TabsTrigger value="overview"  className="data-[state=active]:bg-accent data-[state=active]:text-foreground py-2 px-4">Command Center</TabsTrigger>
+            <TabsTrigger value="results"   className="data-[state=active]:bg-accent data-[state=active]:text-foreground py-2 px-4" disabled={!session.orchestratorResult && !session.researchResult}>Analysis Results</TabsTrigger>
+            <TabsTrigger value="memory"    className="data-[state=active]:bg-accent data-[state=active]:text-foreground py-2 px-4 flex items-center gap-2">
               <BrainCircuit className="h-4 w-4" /> Session Memory
             </TabsTrigger>
           </TabsList>
 
+          {/* ── COMMAND CENTER ── */}
           <TabsContent value="overview" className="mt-0 space-y-6">
             <Card className="bg-card border-border">
               <CardHeader className="border-b border-border/50 pb-4">
@@ -261,17 +275,17 @@ export default function SessionDetail() {
               </CardContent>
             </Card>
 
+            {/* Agent cards */}
             <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
               {agents.map((agent) => {
                 const status = (session.agentProgress as Record<string, string>)?.[agent.id] || "pending";
                 const Icon = agent.icon;
-
                 return (
                   <Card
                     key={agent.id}
                     className={`bg-card border-border overflow-hidden transition-all ${
                       status === "running" ? "ring-1 ring-secondary border-secondary shadow-[0_0_15px_rgba(100,100,255,0.2)]" :
-                      status === "failed" ? "ring-1 ring-destructive/40 border-destructive/30" : ""
+                      status === "failed"  ? "ring-1 ring-destructive/40 border-destructive/30" : ""
                     }`}
                   >
                     <div className="p-5 flex flex-col h-full">
@@ -282,12 +296,16 @@ export default function SessionDetail() {
                         <StatusBadge status={status} isAgent={true} />
                       </div>
                       <h3 className="font-semibold text-foreground">{agent.name}</h3>
-
                       <div className="mt-auto pt-4">
                         {status === "pending" && <p className="text-xs text-muted-foreground font-mono">Awaiting initialization...</p>}
                         {status === "running" && (
                           <div className="flex items-center gap-2 text-xs text-secondary font-mono animate-pulse">
-                            <Activity className="h-3 w-3" /> Processing data...
+                            <Activity className="h-3 w-3" />
+                            {/* Show last log for this agent */}
+                            {(() => {
+                              const last = [...logs].reverse().find(l => l.agent === agent.id);
+                              return last ? last.message.slice(0, 40) + (last.message.length > 40 ? "…" : "") : "Processing...";
+                            })()}
                           </div>
                         )}
                         {status === "done" && (
@@ -307,6 +325,53 @@ export default function SessionDetail() {
               })}
             </div>
 
+            {/* ── LIVE LOG PANEL ── */}
+            {showLogs && (
+              <Card className="bg-card border-border overflow-hidden">
+                <button
+                  onClick={() => setLogOpen((o) => !o)}
+                  className="w-full flex items-center justify-between px-5 py-3 border-b border-border/50 hover:bg-accent/20 transition-colors"
+                >
+                  <div className="flex items-center gap-2">
+                    <Terminal className="h-4 w-4 text-primary" />
+                    <span className="text-sm font-semibold text-foreground">Agent Live Log</span>
+                    {isRunning && (
+                      <span className="flex items-center gap-1 text-xs text-secondary font-mono">
+                        <span className="w-1.5 h-1.5 rounded-full bg-secondary animate-pulse inline-block" />
+                        live
+                      </span>
+                    )}
+                    <span className="text-xs text-muted-foreground font-mono">{logs.length} entries</span>
+                  </div>
+                  <ChevronDown className={`h-4 w-4 text-muted-foreground transition-transform duration-200 ${logOpen ? "rotate-180" : ""}`} />
+                </button>
+
+                {logOpen && (
+                  <div className="bg-[#0a0e17] h-72 overflow-y-auto font-mono text-xs p-4 space-y-0.5">
+                    {logs.map((entry, i) => {
+                      const meta = AGENT_META[entry.agent] ?? { label: entry.agent, color: "text-gray-400", dot: "bg-gray-500" };
+                      const time = new Date(entry.ts).toLocaleTimeString("en", { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" });
+                      return (
+                        <div key={i} className="flex gap-2 leading-5 group">
+                          <span className="text-muted-foreground/40 shrink-0 select-none">{time}</span>
+                          <span className={`shrink-0 ${meta.color} font-semibold w-28 truncate`}>[{meta.label}]</span>
+                          <span className="text-green-300/90 break-all">{entry.message}</span>
+                        </div>
+                      );
+                    })}
+                    {isRunning && (
+                      <div className="flex gap-2 leading-5 animate-pulse">
+                        <span className="text-muted-foreground/40 select-none">──────</span>
+                        <span className="text-muted-foreground/50">waiting for next event...</span>
+                      </div>
+                    )}
+                    <div ref={logEndRef} />
+                  </div>
+                )}
+              </Card>
+            )}
+
+            {/* GitLab card */}
             {session.gitlabUrl && (
               <Card className="bg-card border-[#FC6D26]/30 overflow-hidden">
                 <div className="bg-[#FC6D26]/10 px-6 py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-[#FC6D26]/20">
@@ -335,29 +400,30 @@ export default function SessionDetail() {
             )}
           </TabsContent>
 
+          {/* ── ANALYSIS RESULTS ── */}
           <TabsContent value="results" className="mt-0">
             <div className="grid gap-6">
               {session.orchestratorResult && (
-                <ResultCard title="Orchestrator Plan" icon={<Terminal className="h-5 w-5 text-blue-500" />} data={session.orchestratorResult} />
+                <ResultCard title="Orchestrator Plan"           icon={<Terminal className="h-5 w-5 text-blue-500" />}   data={session.orchestratorResult} />
               )}
               {session.researchResult && (
-                <ResultCard title="Market Research" icon={<Target className="h-5 w-5 text-purple-500" />} data={session.researchResult} />
+                <ResultCard title="Market Research"            icon={<Target   className="h-5 w-5 text-purple-500" />} data={session.researchResult} />
               )}
               {session.businessPlanResult && (
-                <ResultCard title="Business Plan" icon={<FileText className="h-5 w-5 text-primary" />} data={session.businessPlanResult} />
+                <ResultCard title="Business Plan"              icon={<FileText className="h-5 w-5 text-primary" />}     data={session.businessPlanResult} />
               )}
               {session.mvpResult && (
-                <ResultCard title="Technical Architecture & MVP" icon={<Code className="h-5 w-5 text-[#FC6D26]" />} data={session.mvpResult} />
+                <ResultCard title="Technical Architecture & MVP" icon={<Code  className="h-5 w-5 text-[#FC6D26]" />}   data={session.mvpResult} />
               )}
             </div>
           </TabsContent>
 
+          {/* ── SESSION MEMORY ── */}
           <TabsContent value="memory" className="mt-0">
             <Card className="bg-card border-border">
               <CardHeader className="border-b border-border/50">
                 <CardTitle className="flex items-center gap-2">
-                  <BrainCircuit className="h-5 w-5 text-primary" />
-                  Stored Insights
+                  <BrainCircuit className="h-5 w-5 text-primary" /> Stored Insights
                 </CardTitle>
                 <CardDescription>Knowledge extracted and saved to MongoDB vector database during this session.</CardDescription>
               </CardHeader>

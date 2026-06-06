@@ -32,9 +32,11 @@ export async function runBusinessPlanAgent(
   sessionId: string,
   idea: string,
   orchestratorResult: OrchestratorResult,
-  researchResult: ResearchResult
+  researchResult: ResearchResult,
+  onLog?: (msg: string) => void
 ): Promise<BusinessPlanResult> {
   logger.info({ sessionId }, "Running Business Plan Agent");
+  onLog?.(`Building investor-ready business plan for "${orchestratorResult.title}"...`);
 
   const prompt = `You are a Business Plan Agent for FounderAI. Create a comprehensive, investor-ready business plan.
 
@@ -80,9 +82,11 @@ Return a JSON object with this exact structure:
 
 Be specific, realistic, and compelling. Return only valid JSON.`;
 
+  onLog?.("Calling Gemini 2.5 Flash to draft business plan...");
   const raw = await generateWithGemini(prompt);
-  let result: BusinessPlanResult;
+  onLog?.("Response received — parsing business plan...");
 
+  let result: BusinessPlanResult;
   try {
     const cleaned = raw.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
     result = JSON.parse(cleaned);
@@ -91,20 +95,21 @@ Be specific, realistic, and compelling. Return only valid JSON.`;
     throw new Error("Business Plan agent returned invalid JSON");
   }
 
+  onLog?.(`Mission: "${result.missionStatement}"`);
+  onLog?.(`Funding required: ${result.fundingRequirements}`);
+  onLog?.(`Financial projections: Y1 ${result.financialProjections[0]?.revenue ?? "N/A"} → Y2 ${result.financialProjections[1]?.revenue ?? "N/A"} → Y3 ${result.financialProjections[2]?.revenue ?? "N/A"}`);
+  onLog?.(`${result.milestones.length} milestones defined. Team needs: ${result.teamRequirements.slice(0, 3).join(", ")}...`);
+  onLog?.("Saving business plan to MongoDB vector store...");
+
   const planContent = `Business Plan for ${orchestratorResult.title}: ${result.executiveSummary.substring(0, 300)}. Mission: ${result.missionStatement}. Funding: ${result.fundingRequirements}. Year 1 revenue: ${result.financialProjections[0]?.revenue ?? "N/A"}`;
   const planEmbedding = await generateEmbedding(planContent).catch(() => []);
-  await saveMemory(
-    sessionId,
-    "business_plan",
-    planContent,
-    {
-      fundingRequirements: result.fundingRequirements,
-      year1Revenue: result.financialProjections[0]?.revenue,
-      missionStatement: result.missionStatement,
-    },
-    planEmbedding
-  );
+  await saveMemory(sessionId, "business_plan", planContent, {
+    fundingRequirements: result.fundingRequirements,
+    year1Revenue: result.financialProjections[0]?.revenue,
+    missionStatement: result.missionStatement,
+  }, planEmbedding);
 
+  onLog?.("Business plan saved. Agent complete ✓");
   logger.info({ sessionId }, "Business Plan Agent complete");
   return result;
 }

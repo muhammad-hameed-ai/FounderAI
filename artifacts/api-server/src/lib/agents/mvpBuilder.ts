@@ -166,9 +166,12 @@ async function commitFileToGitlab(
 export async function runMvpBuilderAgent(
   sessionId: string,
   idea: string,
-  orchestratorResult: OrchestratorResult
+  orchestratorResult: OrchestratorResult,
+  onLog?: (msg: string) => void
 ): Promise<MvpResult> {
   logger.info({ sessionId }, "Running MVP Builder Agent");
+  onLog?.(`Generating MVP code for "${orchestratorResult.title}"...`);
+  onLog?.(`Tech stack: ${orchestratorResult.techStack.slice(0, 3).join(", ")}`);
 
   const prompt = `You are an MVP Builder Agent. Generate a minimal but functional MVP for this startup.
 
@@ -208,24 +211,31 @@ Return ONLY valid JSON with this exact structure (keep code concise, max 30 line
 
 IMPORTANT: Keep file content short. Escape all quotes and newlines in JSON strings. Return only the JSON object, no markdown.`;
 
+  onLog?.("Calling Gemini 2.5 Flash for code generation...");
   const raw = await generateTextWithGemini(prompt);
+  onLog?.("Response received — parsing MVP structure...");
 
   let result = safeParseJson<Omit<MvpResult, "gitlabUrl">>(raw);
 
   if (!result || !result.repoName || !Array.isArray(result.codeFiles)) {
     logger.warn({ sessionId, rawLength: raw.length }, "MVP JSON parse failed, using fallback");
+    onLog?.("JSON parse failed — using fallback MVP skeleton...");
     result = fallbackMvpResult(orchestratorResult.title);
   }
 
+  onLog?.(`Repo: ${result.repoName} | ${result.codeFiles.length} files | ${result.features.length} features`);
+  onLog?.(`Architecture: ${result.architecture.slice(0, 120)}...`);
   logger.info({ sessionId, repoName: result.repoName, files: result.codeFiles.length }, "MVP code generated");
 
   let gitlabUrl: string | null = null;
   const repoData = await createGitlabRepo(result.repoName, result.description);
 
   if (repoData) {
+    onLog?.(`GitLab repo created: ${repoData.webUrl}`);
     logger.info({ sessionId, repoUrl: repoData.webUrl }, "GitLab repo created");
 
     for (const file of result.codeFiles) {
+      onLog?.(`Committing ${file.filename}...`);
       const success = await commitFileToGitlab(
         repoData.id,
         file.filename,
@@ -234,16 +244,22 @@ IMPORTANT: Keep file content short. Escape all quotes and newlines in JSON strin
         repoData.defaultBranch
       );
       if (success) {
+        onLog?.(`✓ ${file.filename} committed`);
         logger.info({ sessionId, filename: file.filename }, "File committed to GitLab");
+      } else {
+        onLog?.(`⚠ Failed to commit ${file.filename}`);
       }
       await new Promise((r) => setTimeout(r, 400));
     }
 
     gitlabUrl = repoData.webUrl;
+  } else {
+    onLog?.("GitLab repo creation skipped (token not set or API error).");
   }
 
   const finalResult: MvpResult = { ...result, gitlabUrl };
 
+  onLog?.("Saving MVP memory to MongoDB vector store...");
   const mvpContent = `MVP for ${orchestratorResult.title}: ${result.features.slice(0, 3).join(", ")}. Tech: ${result.techStack.join(", ")}. Files: ${result.codeFiles.length}. GitLab: ${gitlabUrl ?? "not created"}`;
   const mvpEmbedding = await generateEmbedding(mvpContent).catch(() => []);
   await saveMemory(sessionId, "mvp", mvpContent, {
@@ -253,6 +269,7 @@ IMPORTANT: Keep file content short. Escape all quotes and newlines in JSON strin
     techStack: result.techStack,
   }, mvpEmbedding);
 
+  onLog?.("MVP Builder complete ✓" + (gitlabUrl ? ` — repo: ${gitlabUrl}` : ""));
   logger.info({ sessionId, gitlabUrl }, "MVP Builder Agent complete");
   return finalResult;
 }

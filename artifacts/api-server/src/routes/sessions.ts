@@ -195,6 +195,10 @@ router.post("/sessions/:id/run", async (req, res): Promise<void> => {
   );
   sendEvent({ type: "started", sessionId: rawId });
 
+  const sendLog = (agent: string, message: string) => {
+    sendEvent({ type: "log", agent, message, ts: Date.now() });
+  };
+
   try {
     // Smart resume: skip agents that already completed
     const progress = (doc.agentProgress as Record<string, string>) ?? {};
@@ -202,9 +206,10 @@ router.post("/sessions/:id/run", async (req, res): Promise<void> => {
     let orchestratorResult = doc.orchestratorResult as Awaited<ReturnType<typeof runOrchestratorAgent>> | null;
     if (progress.orchestrator === "done" && orchestratorResult) {
       sendEvent({ agent: "orchestrator", status: "done" });
+      sendLog("orchestrator", "Skipped — already completed.");
     } else {
       await updateProgress("orchestrator", "running");
-      orchestratorResult = await runOrchestratorAgent(rawId, doc.idea as string);
+      orchestratorResult = await runOrchestratorAgent(rawId, doc.idea as string, (msg) => sendLog("orchestrator", msg));
       await updateProgress("orchestrator", "done", { orchestratorResult, title: orchestratorResult.title });
       await collection.updateOne({ _id: objectId }, { $set: { title: orchestratorResult.title } });
     }
@@ -212,18 +217,20 @@ router.post("/sessions/:id/run", async (req, res): Promise<void> => {
     let researchResult = doc.researchResult as Awaited<ReturnType<typeof runResearchAgent>> | null;
     if (progress.research === "done" && researchResult) {
       sendEvent({ agent: "research", status: "done" });
+      sendLog("research", "Skipped — already completed.");
     } else {
       await updateProgress("research", "running");
-      researchResult = await runResearchAgent(rawId, doc.idea as string, orchestratorResult!);
+      researchResult = await runResearchAgent(rawId, doc.idea as string, orchestratorResult!, (msg) => sendLog("research", msg));
       await updateProgress("research", "done", { researchResult });
     }
 
     let businessPlanResult = doc.businessPlanResult as Awaited<ReturnType<typeof runBusinessPlanAgent>> | null;
     if (progress.businessPlan === "done" && businessPlanResult) {
       sendEvent({ agent: "businessPlan", status: "done" });
+      sendLog("businessPlan", "Skipped — already completed.");
     } else {
       await updateProgress("businessPlan", "running");
-      businessPlanResult = await runBusinessPlanAgent(rawId, doc.idea as string, orchestratorResult!, researchResult!);
+      businessPlanResult = await runBusinessPlanAgent(rawId, doc.idea as string, orchestratorResult!, researchResult!, (msg) => sendLog("businessPlan", msg));
       await updateProgress("businessPlan", "done", { businessPlanResult });
     }
 
@@ -231,9 +238,10 @@ router.post("/sessions/:id/run", async (req, res): Promise<void> => {
     if (progress.mvpBuilder === "done" && doc.mvpResult) {
       mvpResult = doc.mvpResult as Awaited<ReturnType<typeof runMvpBuilderAgent>>;
       sendEvent({ agent: "mvpBuilder", status: "done" });
+      sendLog("mvpBuilder", "Skipped — already completed.");
     } else {
       await updateProgress("mvpBuilder", "running");
-      mvpResult = await runMvpBuilderAgent(rawId, doc.idea as string, orchestratorResult!);
+      mvpResult = await runMvpBuilderAgent(rawId, doc.idea as string, orchestratorResult!, (msg) => sendLog("mvpBuilder", msg));
       await updateProgress("mvpBuilder", "done", { mvpResult, gitlabUrl: mvpResult.gitlabUrl });
     }
 

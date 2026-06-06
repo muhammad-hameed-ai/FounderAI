@@ -26,9 +26,11 @@ export interface ResearchResult {
 export async function runResearchAgent(
   sessionId: string,
   idea: string,
-  orchestratorResult: OrchestratorResult
+  orchestratorResult: OrchestratorResult,
+  onLog?: (msg: string) => void
 ): Promise<ResearchResult> {
   logger.info({ sessionId }, "Running Market Research Agent");
+  onLog?.(`Starting market research for "${orchestratorResult.title}"...`);
 
   const prompt = `You are a Market Research Agent for FounderAI. Conduct comprehensive market research for this startup.
 
@@ -60,9 +62,11 @@ Return a JSON object with this exact structure:
 
 Include 3-5 realistic competitors. Be specific with market data. Return only valid JSON.`;
 
+  onLog?.("Calling Gemini 2.5 Flash for market research...");
   const raw = await generateWithGemini(prompt);
-  let result: ResearchResult;
+  onLog?.("Response received — parsing market data...");
 
+  let result: ResearchResult;
   try {
     const cleaned = raw.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
     result = JSON.parse(cleaned);
@@ -71,25 +75,26 @@ Include 3-5 realistic competitors. Be specific with market data. Return only val
     throw new Error("Research agent returned invalid JSON");
   }
 
+  onLog?.(`Market size: ${result.marketSize} (${result.marketGrowthRate} growth)`);
+  onLog?.(`Found ${result.competitors.length} competitors: ${result.competitors.map(c => c.name).join(", ")}`);
+  onLog?.(`Competitive advantage: ${result.competitiveAdvantage.slice(0, 120)}...`);
+  onLog?.(`Go-to-market: ${result.goToMarketStrategy.slice(0, 120)}...`);
+  onLog?.(`Saving market research + ${result.competitors.length} competitor profiles to MongoDB...`);
+
   const researchContent = `Market Research for ${orchestratorResult.title}: Market size ${result.marketSize}, growth ${result.marketGrowthRate}. ${result.competitors.length} competitors analyzed. Key insight: ${result.keyInsights[0] ?? ""}. Competitive advantage: ${result.competitiveAdvantage}`;
   const researchEmbedding = await generateEmbedding(researchContent).catch(() => []);
-  await saveMemory(
-    sessionId,
-    "research",
-    researchContent,
-    { marketSize: result.marketSize, competitorCount: result.competitors.length }
-  , researchEmbedding);
+  await saveMemory(sessionId, "research", researchContent, {
+    marketSize: result.marketSize,
+    competitorCount: result.competitors.length,
+  }, researchEmbedding);
 
   for (const competitor of result.competitors) {
     const compContent = `Competitor: ${competitor.name} - ${competitor.description}. Strengths: ${competitor.strengths.join(", ")}. Weaknesses: ${competitor.weaknesses.join(", ")}`;
     const compEmbedding = await generateEmbedding(compContent).catch(() => []);
-    await saveMemory(
-      sessionId,
-      "competitor",
-      compContent,
-      { competitorName: competitor.name, fundingStage: competitor.fundingStage },
-      compEmbedding
-    );
+    await saveMemory(sessionId, "competitor", compContent, {
+      competitorName: competitor.name,
+      fundingStage: competitor.fundingStage,
+    }, compEmbedding);
   }
 
   for (const insight of result.keyInsights) {
@@ -100,6 +105,7 @@ Include 3-5 realistic competitors. Be specific with market data. Return only val
     }, insightEmbedding);
   }
 
+  onLog?.(`${result.keyInsights.length} key insights saved. Research complete ✓`);
   logger.info({ sessionId, competitors: result.competitors.length }, "Research Agent complete");
   return result;
 }
