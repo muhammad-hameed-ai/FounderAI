@@ -196,44 +196,51 @@ router.post("/sessions/:id/run", async (req, res): Promise<void> => {
   sendEvent({ type: "started", sessionId: rawId });
 
   try {
-    await updateProgress("orchestrator", "running");
-    const orchestratorResult = await runOrchestratorAgent(rawId, doc.idea as string);
-    await updateProgress("orchestrator", "done", {
-      orchestratorResult,
-      title: orchestratorResult.title,
-    });
-    await collection.updateOne({ _id: objectId }, { $set: { title: orchestratorResult.title } });
+    // Smart resume: skip agents that already completed
+    const progress = (doc.agentProgress as Record<string, string>) ?? {};
 
-    await updateProgress("research", "running");
-    const researchResult = await runResearchAgent(rawId, doc.idea as string, orchestratorResult);
-    await updateProgress("research", "done", { researchResult });
+    let orchestratorResult = doc.orchestratorResult as Awaited<ReturnType<typeof runOrchestratorAgent>> | null;
+    if (progress.orchestrator === "done" && orchestratorResult) {
+      sendEvent({ agent: "orchestrator", status: "done" });
+    } else {
+      await updateProgress("orchestrator", "running");
+      orchestratorResult = await runOrchestratorAgent(rawId, doc.idea as string);
+      await updateProgress("orchestrator", "done", { orchestratorResult, title: orchestratorResult.title });
+      await collection.updateOne({ _id: objectId }, { $set: { title: orchestratorResult.title } });
+    }
 
-    await updateProgress("businessPlan", "running");
-    const businessPlanResult = await runBusinessPlanAgent(
-      rawId,
-      doc.idea as string,
-      orchestratorResult,
-      researchResult
-    );
-    await updateProgress("businessPlan", "done", { businessPlanResult });
+    let researchResult = doc.researchResult as Awaited<ReturnType<typeof runResearchAgent>> | null;
+    if (progress.research === "done" && researchResult) {
+      sendEvent({ agent: "research", status: "done" });
+    } else {
+      await updateProgress("research", "running");
+      researchResult = await runResearchAgent(rawId, doc.idea as string, orchestratorResult!);
+      await updateProgress("research", "done", { researchResult });
+    }
 
-    await updateProgress("mvpBuilder", "running");
-    const mvpResult = await runMvpBuilderAgent(rawId, doc.idea as string, orchestratorResult);
-    await updateProgress("mvpBuilder", "done", {
-      mvpResult,
-      gitlabUrl: mvpResult.gitlabUrl,
-    });
+    let businessPlanResult = doc.businessPlanResult as Awaited<ReturnType<typeof runBusinessPlanAgent>> | null;
+    if (progress.businessPlan === "done" && businessPlanResult) {
+      sendEvent({ agent: "businessPlan", status: "done" });
+    } else {
+      await updateProgress("businessPlan", "running");
+      businessPlanResult = await runBusinessPlanAgent(rawId, doc.idea as string, orchestratorResult!, researchResult!);
+      await updateProgress("businessPlan", "done", { businessPlanResult });
+    }
+
+    let mvpResult: Awaited<ReturnType<typeof runMvpBuilderAgent>> | null = null;
+    if (progress.mvpBuilder === "done" && doc.mvpResult) {
+      mvpResult = doc.mvpResult as Awaited<ReturnType<typeof runMvpBuilderAgent>>;
+      sendEvent({ agent: "mvpBuilder", status: "done" });
+    } else {
+      await updateProgress("mvpBuilder", "running");
+      mvpResult = await runMvpBuilderAgent(rawId, doc.idea as string, orchestratorResult!);
+      await updateProgress("mvpBuilder", "done", { mvpResult, gitlabUrl: mvpResult.gitlabUrl });
+    }
 
     const memoryCount = await countMemoriesForSession(rawId);
     await collection.updateOne(
       { _id: objectId },
-      {
-        $set: {
-          status: "completed",
-          memoryCount,
-          updatedAt: new Date().toISOString(),
-        },
-      }
+      { $set: { status: "completed", memoryCount, updatedAt: new Date().toISOString() } }
     );
     sendEvent({ type: "completed", sessionId: rawId, memoryCount });
   } catch (err) {
@@ -247,6 +254,39 @@ router.post("/sessions/:id/run", async (req, res): Promise<void> => {
 
   res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
   res.end();
+});
+
+router.post("/sessions/:id/stop", async (req, res): Promise<void> => {
+  const rawId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+
+  let objectId: ObjectId;
+  try {
+    objectId = new ObjectId(rawId);
+  } catch {
+    res.status(404).json({ error: "Session not found" });
+    return;
+  }
+
+  const collection = await getSessionsCollection();
+  const doc = await collection.findOne({ _id: objectId });
+
+  if (!doc) {
+    res.status(404).json({ error: "Session not found" });
+    return;
+  }
+
+  const progress = (doc.agentProgress as Record<string, string>) ?? {};
+  const updatedProgress: Record<string, string> = {};
+  for (const [agent, status] of Object.entries(progress)) {
+    updatedProgress[`agentProgress.${agent}`] = status === "running" ? "failed" : status;
+  }
+
+  await collection.updateOne(
+    { _id: objectId },
+    { $set: { status: "failed", updatedAt: new Date().toISOString(), ...updatedProgress } }
+  );
+
+  res.json({ success: true, message: "Session stopped" });
 });
 
 router.get("/sessions/:id/status", async (req, res): Promise<void> => {
