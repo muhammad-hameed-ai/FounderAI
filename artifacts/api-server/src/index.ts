@@ -1,14 +1,9 @@
 import app from "./app";
 import { logger } from "./lib/logger";
 
-const rawPort = process.env["PORT"];
-
-if (!rawPort) {
-  throw new Error(
-    "PORT environment variable is required but was not provided.",
-  );
-}
-
+// Render injects PORT automatically; default to 10000 (Render's standard port)
+// so the server starts correctly in all environments.
+const rawPort = process.env["PORT"] ?? "10000";
 const port = Number(rawPort);
 
 if (Number.isNaN(port) || port <= 0) {
