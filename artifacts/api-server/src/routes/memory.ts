@@ -24,7 +24,8 @@ router.post("/memory/recall", async (req, res): Promise<void> => {
     let results;
     try {
       const embedding = await generateEmbedding(query);
-      results = await semanticSearch(embedding, limit ?? 10, sessionId ?? undefined);
+      // Pass original query text so fallback text search works correctly if vector search fails.
+      results = await semanticSearch(embedding, limit ?? 10, sessionId ?? undefined, query);
     } catch (embeddingErr) {
       logger.warn({ embeddingErr }, "Embedding failed, using text search");
       results = await listMemories(sessionId ?? undefined, undefined, limit ?? 10);

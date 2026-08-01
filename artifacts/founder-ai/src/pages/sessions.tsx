@@ -1,5 +1,5 @@
 import { Layout } from "@/components/layout";
-import { useListSessions, getListSessionsQueryKey, useDeleteSession } from "@workspace/api-client-react";
+import { useListSessions, getListSessionsQueryKey, useDeleteSession, getGetDashboardStatsQueryKey } from "@workspace/api-client-react";
 import { Link, useLocation } from "wouter";
 import { StatusBadge } from "@/components/status-badge";
 import { formatDistanceToNow } from "date-fns";
@@ -40,6 +40,8 @@ export default function SessionsList() {
       onSettled: () => {
         setDeletingId(null);
         queryClient.invalidateQueries({ queryKey: getListSessionsQueryKey() });
+        // Keep dashboard totals in sync after a deletion.
+        queryClient.invalidateQueries({ queryKey: getGetDashboardStatsQueryKey() });
       },
     },
   });

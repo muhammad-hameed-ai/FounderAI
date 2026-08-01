@@ -46,7 +46,8 @@ export async function saveMemory(
 export async function semanticSearch(
   queryEmbedding: number[],
   limit: number = 10,
-  sessionId?: string
+  sessionId?: string,
+  fallbackQuery?: string   // original text query used when vector search fails
 ): Promise<MemoryRecordOut[]> {
   const collection = await getMemoriesCollection();
 
@@ -87,7 +88,8 @@ export async function semanticSearch(
     }));
   } catch (err) {
     logger.warn({ err }, "Vector search failed, falling back to text search");
-    return fallbackTextSearch(queryEmbedding.length > 0 ? "" : "", limit, sessionId);
+    // Use the original query text for text search; falls back to recent memories if empty.
+    return fallbackTextSearch(fallbackQuery ?? "", limit, sessionId);
   }
 }
 

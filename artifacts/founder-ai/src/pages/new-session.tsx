@@ -1,5 +1,5 @@
 import { Layout } from "@/components/layout";
-import { useCreateSession } from "@workspace/api-client-react";
+import { useCreateSession, getGetDashboardStatsQueryKey } from "@workspace/api-client-react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -7,8 +7,9 @@ import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Form, FormControl, FormField, FormItem, FormMessage } from "@/components/ui/form";
 import { Textarea } from "@/components/ui/textarea";
-import { Sparkles, ArrowRight } from "lucide-react";
+import { Sparkles, ArrowRight, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { useQueryClient } from "@tanstack/react-query";
 
 const formSchema = z.object({
   idea: z.string().min(10, {
@@ -19,6 +20,7 @@ const formSchema = z.object({
 export default function NewSession() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
+  const queryClient = useQueryClient();
   const createSession = useCreateSession();
 
   const form = useForm<z.infer<typeof formSchema>>({
@@ -31,6 +33,8 @@ export default function NewSession() {
   function onSubmit(values: z.infer<typeof formSchema>) {
     createSession.mutate({ data: { idea: values.idea } }, {
       onSuccess: (session) => {
+        // Refresh dashboard totals so the new session count is accurate.
+        queryClient.invalidateQueries({ queryKey: getGetDashboardStatsQueryKey() });
         toast({
           title: "Session created",
           description: "Your startup idea is ready for analysis.",
@@ -86,8 +90,17 @@ export default function NewSession() {
                 disabled={createSession.isPending}
                 className="bg-primary text-primary-foreground hover:bg-primary/90 font-medium px-8 text-base shadow-[0_0_30px_rgba(0,237,100,0.2)] hover:shadow-[0_0_40px_rgba(0,237,100,0.3)] transition-all group"
               >
-                {createSession.isPending ? "Initializing..." : "Start Analysis"}
-                <ArrowRight className="ml-2 h-5 w-5 group-hover:translate-x-1 transition-transform" />
+                {createSession.isPending ? (
+                  <>
+                    <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                    Initializing...
+                  </>
+                ) : (
+                  <>
+                    Start Analysis
+                    <ArrowRight className="ml-2 h-5 w-5 group-hover:translate-x-1 transition-transform" />
+                  </>
+                )}
               </Button>
             </div>
           </form>

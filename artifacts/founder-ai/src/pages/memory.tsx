@@ -8,7 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { formatDistanceToNow } from "date-fns";
 import { Link } from "wouter";
 import { Badge } from "@/components/ui/badge";
-import { MemoryRecord } from "@workspace/api-client-react/src/generated/api.schemas";
+import type { MemoryRecord } from "@workspace/api-client-react";
 import { useToast } from "@/hooks/use-toast";
 
 export default function MemoryExplorer() {
@@ -18,7 +18,7 @@ export default function MemoryExplorer() {
   const { toast } = useToast();
   
   const recallMemory = useRecallMemory();
-  const searchTimeoutRef = useRef<NodeJS.Timeout>();
+  const searchTimeoutRef = useRef<NodeJS.Timeout | undefined>(undefined);
 
   const { data: recentMemories, isLoading: isLoadingRecent } = useListMemories(
     { limit: 20 },

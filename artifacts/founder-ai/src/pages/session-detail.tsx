@@ -1,5 +1,11 @@
 import { Layout } from "@/components/layout";
-import { useGetSession, getGetSessionQueryKey, useListMemories, getListMemoriesQueryKey } from "@workspace/api-client-react";
+import {
+  useGetSession,
+  getGetSessionQueryKey,
+  useListMemories,
+  getListMemoriesQueryKey,
+  getGetDashboardStatsQueryKey,
+} from "@workspace/api-client-react";
 import { useParams } from "wouter";
 import { useState, useEffect, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -42,6 +48,8 @@ export default function SessionDetail() {
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [logOpen, setLogOpen] = useState(true);
   const logEndRef = useRef<HTMLDivElement>(null);
+  // Keep a ref to the SSE reader so Stop can abort it immediately.
+  const readerRef = useRef<ReadableStreamDefaultReader<Uint8Array> | null>(null);
 
   const { data: session, isLoading, isError } = useGetSession(id, {
     query: {
@@ -90,13 +98,21 @@ export default function SessionDetail() {
       }
 
       const reader = response.body?.getReader();
-      if (!reader) throw new Error("No reader stream");
+      if (!reader) throw new Error("No response stream available");
+      readerRef.current = reader;
+
       const decoder = new TextDecoder();
+      // Buffer for partial SSE frames that arrive across multiple chunks.
+      let buffer = "";
 
       while (true) {
         const { value, done } = await reader.read();
         if (done) break;
-        const lines = decoder.decode(value).split("\n");
+
+        buffer += decoder.decode(value, { stream: true });
+        // Split on newlines but keep the incomplete last piece in the buffer.
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
 
         for (const line of lines) {
           if (!line.startsWith("data: ")) continue;
@@ -115,18 +131,22 @@ export default function SessionDetail() {
             }
             if (data.type === "completed") {
               toast({ title: "Analysis Complete ✓", description: "All 4 agents finished successfully!" });
-              queryClient.invalidateQueries({ queryKey: ["getDashboardStats"] });
+              // Refresh dashboard so totals update immediately.
+              queryClient.invalidateQueries({ queryKey: getGetDashboardStatsQueryKey() });
             }
           } catch {
-            // ignore parse errors on partial chunks
+            // Ignore JSON parse errors on partial/malformed frames.
           }
         }
       }
     } catch (error) {
       const msg = error instanceof Error ? error.message : "Agent run failed";
+      // DOMException AbortError happens when the reader is cancelled via Stop — not a real failure.
+      if (error instanceof DOMException && error.name === "AbortError") return;
       setErrorMessage(msg);
       toast({ title: "Run Failed", description: msg, variant: "destructive" });
     } finally {
+      readerRef.current = null;
       setIsRunning(false);
       queryClient.invalidateQueries({ queryKey: getGetSessionQueryKey(id) });
     }
@@ -135,6 +155,10 @@ export default function SessionDetail() {
   const handleStop = async () => {
     setIsStopping(true);
     try {
+      // Cancel the SSE reader immediately so the UI stops waiting.
+      readerRef.current?.cancel().catch(() => {});
+      readerRef.current = null;
+
       await fetch(`/api/sessions/${id}/stop`, { method: "POST" });
       toast({ title: "Stopped", description: "Agent run was stopped." });
       setIsRunning(false);
@@ -301,7 +325,6 @@ export default function SessionDetail() {
                         {status === "running" && (
                           <div className="flex items-center gap-2 text-xs text-secondary font-mono animate-pulse">
                             <Activity className="h-3 w-3" />
-                            {/* Show last log for this agent */}
                             {(() => {
                               const last = [...logs].reverse().find(l => l.agent === agent.id);
                               return last ? last.message.slice(0, 40) + (last.message.length > 40 ? "…" : "") : "Processing...";

@@ -22,6 +22,10 @@ import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
 
+// Track sessions that should be aborted (stop button or client disconnect).
+// Key = sessionId string, value = true when stop requested.
+const stoppedSessions = new Map<string, boolean>();
+
 function toSessionOut(doc: Record<string, unknown>) {
   return {
     id: (doc._id as ObjectId).toString(),
@@ -129,6 +133,14 @@ router.delete("/sessions/:id", async (req, res): Promise<void> => {
   }
 
   const collection = await getSessionsCollection();
+
+  // Prevent deleting a session while agents are actively running.
+  const existing = await collection.findOne({ _id: objectId });
+  if (existing?.status === "running") {
+    res.status(409).json({ error: "Cannot delete a session while agents are running. Stop it first." });
+    return;
+  }
+
   const result = await collection.deleteOne({ _id: objectId });
 
   if (result.deletedCount === 0) {
@@ -167,8 +179,25 @@ router.post("/sessions/:id/run", async (req, res): Promise<void> => {
   res.setHeader("Cache-Control", "no-cache");
   res.setHeader("Connection", "keep-alive");
 
+  // Clear any previous stop signal for this session.
+  stoppedSessions.delete(rawId);
+
+  // When the client closes the tab / connection, mark session as stopped
+  // so the agent loop can exit cleanly instead of continuing silently.
+  req.on("close", () => {
+    if (stoppedSessions.get(rawId) === undefined) {
+      stoppedSessions.set(rawId, true);
+    }
+  });
+
+  const shouldAbort = () => stoppedSessions.get(rawId) === true;
+
   const sendEvent = (event: Record<string, unknown>) => {
-    res.write(`data: ${JSON.stringify(event)}\n\n`);
+    try {
+      res.write(`data: ${JSON.stringify(event)}\n\n`);
+    } catch {
+      // Client already disconnected — ignore write errors.
+    }
   };
 
   const updateProgress = async (
@@ -200,48 +229,60 @@ router.post("/sessions/:id/run", async (req, res): Promise<void> => {
   };
 
   try {
-    // Smart resume: skip agents that already completed
+    // Smart resume: skip agents that already completed.
     const progress = (doc.agentProgress as Record<string, string>) ?? {};
 
+    // ── Orchestrator ──────────────────────────────────────────────────────
     let orchestratorResult = doc.orchestratorResult as Awaited<ReturnType<typeof runOrchestratorAgent>> | null;
     if (progress.orchestrator === "done" && orchestratorResult) {
       sendEvent({ agent: "orchestrator", status: "done" });
       sendLog("orchestrator", "Skipped — already completed.");
     } else {
+      if (shouldAbort()) throw new Error("Run was stopped by user.");
       await updateProgress("orchestrator", "running");
       orchestratorResult = await runOrchestratorAgent(rawId, doc.idea as string, (msg) => sendLog("orchestrator", msg));
       await updateProgress("orchestrator", "done", { orchestratorResult, title: orchestratorResult.title });
       await collection.updateOne({ _id: objectId }, { $set: { title: orchestratorResult.title } });
     }
 
+    // ── Market Research ──────────────────────────────────────────────────
+    if (!orchestratorResult) throw new Error("Orchestrator result missing — cannot continue.");
+
     let researchResult = doc.researchResult as Awaited<ReturnType<typeof runResearchAgent>> | null;
     if (progress.research === "done" && researchResult) {
       sendEvent({ agent: "research", status: "done" });
       sendLog("research", "Skipped — already completed.");
     } else {
+      if (shouldAbort()) throw new Error("Run was stopped by user.");
       await updateProgress("research", "running");
-      researchResult = await runResearchAgent(rawId, doc.idea as string, orchestratorResult!, (msg) => sendLog("research", msg));
+      researchResult = await runResearchAgent(rawId, doc.idea as string, orchestratorResult, (msg) => sendLog("research", msg));
       await updateProgress("research", "done", { researchResult });
     }
+
+    // ── Business Plan ────────────────────────────────────────────────────
+    if (!researchResult) throw new Error("Research result missing — cannot continue.");
 
     let businessPlanResult = doc.businessPlanResult as Awaited<ReturnType<typeof runBusinessPlanAgent>> | null;
     if (progress.businessPlan === "done" && businessPlanResult) {
       sendEvent({ agent: "businessPlan", status: "done" });
       sendLog("businessPlan", "Skipped — already completed.");
     } else {
+      if (shouldAbort()) throw new Error("Run was stopped by user.");
       await updateProgress("businessPlan", "running");
-      businessPlanResult = await runBusinessPlanAgent(rawId, doc.idea as string, orchestratorResult!, researchResult!, (msg) => sendLog("businessPlan", msg));
+      businessPlanResult = await runBusinessPlanAgent(rawId, doc.idea as string, orchestratorResult, researchResult, (msg) => sendLog("businessPlan", msg));
       await updateProgress("businessPlan", "done", { businessPlanResult });
     }
 
+    // ── MVP Builder ──────────────────────────────────────────────────────
     let mvpResult: Awaited<ReturnType<typeof runMvpBuilderAgent>> | null = null;
     if (progress.mvpBuilder === "done" && doc.mvpResult) {
       mvpResult = doc.mvpResult as Awaited<ReturnType<typeof runMvpBuilderAgent>>;
       sendEvent({ agent: "mvpBuilder", status: "done" });
       sendLog("mvpBuilder", "Skipped — already completed.");
     } else {
+      if (shouldAbort()) throw new Error("Run was stopped by user.");
       await updateProgress("mvpBuilder", "running");
-      mvpResult = await runMvpBuilderAgent(rawId, doc.idea as string, orchestratorResult!, (msg) => sendLog("mvpBuilder", msg));
+      mvpResult = await runMvpBuilderAgent(rawId, doc.idea as string, orchestratorResult, (msg) => sendLog("mvpBuilder", msg));
       await updateProgress("mvpBuilder", "done", { mvpResult, gitlabUrl: mvpResult.gitlabUrl });
     }
 
@@ -252,16 +293,25 @@ router.post("/sessions/:id/run", async (req, res): Promise<void> => {
     );
     sendEvent({ type: "completed", sessionId: rawId, memoryCount });
   } catch (err) {
-    logger.error({ err, sessionId: rawId }, "Agent run failed");
+    const msg = err instanceof Error ? err.message : "Agent run failed";
+    const isStopped = msg.includes("stopped by user");
+    logger.error({ err, sessionId: rawId }, isStopped ? "Agent run stopped by user" : "Agent run failed");
     await collection.updateOne(
       { _id: objectId },
       { $set: { status: "failed", updatedAt: new Date().toISOString() } }
     );
-    sendEvent({ type: "error", message: err instanceof Error ? err.message : "Agent run failed" });
+    if (!isStopped) {
+      sendEvent({ type: "error", message: msg });
+    }
+  } finally {
+    stoppedSessions.delete(rawId);
+    try {
+      res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
+      res.end();
+    } catch {
+      // Client may have already disconnected.
+    }
   }
-
-  res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
-  res.end();
 });
 
 router.post("/sessions/:id/stop", async (req, res): Promise<void> => {
@@ -282,6 +332,9 @@ router.post("/sessions/:id/stop", async (req, res): Promise<void> => {
     res.status(404).json({ error: "Session not found" });
     return;
   }
+
+  // Signal the running agent loop to stop at the next checkpoint.
+  stoppedSessions.set(rawId, true);
 
   const progress = (doc.agentProgress as Record<string, string>) ?? {};
   const updatedProgress: Record<string, string> = {};
