@@ -1,4 +1,4 @@
-<![CDATA[<div align="center">
+<div align="center">
 
 # 🚀 FounderAI
 
@@ -14,7 +14,7 @@
 
 **Drop a one-sentence startup idea → get back a full market research report, an investor-ready business plan, and working MVP code committed to GitLab — all powered by a multi-agent AI pipeline running in real-time.**
 
-[Live Demo](#deployment) • [Quick Start](#quick-start) • [Architecture](#architecture) • [API Reference](#api-reference) • [Deployment](#deployment)
+[Quick Start](#quick-start) • [Architecture](#architecture-overview) • [API Reference](#api-reference) • [Deployment](#deployment-on-render)
 
 </div>
 
@@ -33,7 +33,7 @@
 9. [Data Models](#data-models)
 10. [API Reference](#api-reference)
 11. [Frontend Pages](#frontend-pages)
-12. [Quick Start (Local Dev)](#quick-start)
+12. [Quick Start](#quick-start)
 13. [Environment Variables](#environment-variables)
 14. [MongoDB Atlas Setup](#mongodb-atlas-setup)
 15. [GitLab Integration](#gitlab-integration)
@@ -91,47 +91,47 @@ The entire process streams live log events to the browser via **Server-Sent Even
 ```mermaid
 graph TB
     subgraph Browser["Browser (React + Vite)"]
-        UI[React UI<br/>Wouter Router]
-        RQ[TanStack Query<br/>Auto-typed hooks]
-        SSE[SSE Reader<br/>Line-buffered]
+        UI["React UI / Wouter Router"]
+        RQ["TanStack Query / Auto-typed hooks"]
+        SSE["SSE Reader / Line-buffered"]
         UI --> RQ
         UI --> SSE
     end
 
     subgraph API["API Server (Express 5)"]
         direction TB
-        ROUTES[REST Routes<br/>/api/sessions<br/>/api/memory<br/>/api/dashboard]
-        STREAM[SSE Endpoint<br/>POST /sessions/:id/run]
-        ZOD[Zod Validators<br/>api-zod package]
+        ROUTES["REST Routes"]
+        STREAM["SSE Endpoint POST /sessions/:id/run"]
+        ZOD["Zod Validators api-zod package"]
         ROUTES --> ZOD
         STREAM --> ZOD
     end
 
     subgraph Agents["Agent Pipeline"]
         direction LR
-        O[🧭 Orchestrator<br/>Idea analysis]
-        R[🔬 Research<br/>Market data]
-        B[📋 Business Plan<br/>Investor deck]
-        M[🛠 MVP Builder<br/>Code gen]
+        O["🧭 Orchestrator"]
+        R["🔬 Market Research"]
+        B["📋 Business Plan"]
+        M["🛠 MVP Builder"]
         O --> R --> B --> M
     end
 
     subgraph Gemini["Google Gemini 2.5 Flash"]
-        GEN[generateWithGemini<br/>JSON mode]
-        TEXT[generateTextWithGemini<br/>Text mode]
-        EMBED[generateEmbedding<br/>text-embedding-004<br/>768-dim vectors]
+        GEN["generateWithGemini JSON mode"]
+        TEXT["generateTextWithGemini Text mode"]
+        EMBED["text-embedding-004 768-dim vectors"]
     end
 
     subgraph Storage["MongoDB Atlas"]
-        SESSIONS[(sessions<br/>collection)]
-        MEMORIES[(memories<br/>collection)]
-        VECTOR[Vector Index<br/>$vectorSearch<br/>768 dimensions]
+        SESSIONS[("sessions collection")]
+        MEMORIES[("memories collection")]
+        VECTOR["Vector Index $vectorSearch"]
         MEMORIES --> VECTOR
     end
 
     subgraph GitLab["GitLab API v4"]
-        REPO[Create Repo<br/>POST /projects]
-        COMMIT[Commit Files<br/>POST /repository/files/:path]
+        REPO["Create Repo POST /projects"]
+        COMMIT["Commit Files POST /repository/files"]
         REPO --> COMMIT
     end
 
@@ -141,13 +141,6 @@ graph TB
     Gemini -->|embeddings| Storage
     Agents -->|saves results| Storage
     M -->|creates + commits| GitLab
-
-    style Browser fill:#1e293b,stroke:#334155,color:#e2e8f0
-    style API fill:#1e293b,stroke:#334155,color:#e2e8f0
-    style Agents fill:#1e293b,stroke:#334155,color:#e2e8f0
-    style Gemini fill:#1a237e,stroke:#3949ab,color:#e8eaf6
-    style Storage fill:#1b5e20,stroke:#388e3c,color:#e8f5e9
-    style GitLab fill:#3e1f02,stroke:#e24329,color:#fbe9e7
 ```
 
 ---
@@ -164,55 +157,48 @@ sequenceDiagram
     participant G as Gemini 2.5 Flash
 
     FE->>API: POST /api/sessions/:id/run
-    API-->>FE: SSE: { type: "started" }
+    API-->>FE: SSE started event
     API->>DB: status = "running"
 
-    Note over API,G: ── Agent 1: Orchestrator ──
-    API-->>FE: SSE log: "Analyzing startup idea..."
-    API->>G: generateWithGemini(prompt, JSON mode)
-    G-->>API: { title, summary, problemStatement,<br/>targetMarket, valueProposition,<br/>revenueModel, keyRisks[], techStack[], nextSteps[] }
-    API->>G: generateEmbedding(content)
+    Note over API,G: Agent 1 — Orchestrator
+    API->>G: generateWithGemini (JSON mode)
+    G-->>API: title, summary, techStack, keyRisks, nextSteps
+    API->>G: generateEmbedding
     G-->>API: float[768]
-    API->>DB: memories.insertOne({ type:"orchestrator", embedding })
-    API->>DB: sessions.updateOne({ orchestratorResult, agentProgress.orchestrator:"done" })
-    API-->>FE: SSE: { agent:"orchestrator", status:"done" }
+    API->>DB: memories.insertOne (type orchestrator)
+    API->>DB: sessions.updateOne orchestratorResult
+    API-->>FE: SSE agent orchestrator done
 
-    Note over API,G: ── Agent 2: Market Research ──
-    API-->>FE: SSE log: "Starting market research..."
-    API->>G: generateWithGemini(prompt + orchestratorResult context)
-    G-->>API: { marketSize, marketGrowthRate, competitors[],<br/>competitiveAdvantage, keyInsights[],<br/>goToMarketStrategy, regulatoryConsiderations }
-    loop Per competitor + per insight
-        API->>G: generateEmbedding(competitorContent)
-        API->>DB: memories.insertOne({ type:"competitor"|"insight" })
+    Note over API,G: Agent 2 — Market Research
+    API->>G: generateWithGemini + orchestrator context
+    G-->>API: marketSize, competitors, keyInsights, goToMarket
+    loop Per competitor and per insight
+        API->>G: generateEmbedding
+        API->>DB: memories.insertOne (type competitor / insight)
     end
-    API->>DB: sessions.updateOne({ researchResult, agentProgress.research:"done" })
-    API-->>FE: SSE: { agent:"research", status:"done" }
+    API->>DB: sessions.updateOne researchResult
+    API-->>FE: SSE agent research done
 
-    Note over API,G: ── Agent 3: Business Plan ──
-    API-->>FE: SSE log: "Building investor-ready business plan..."
-    API->>G: generateWithGemini(prompt + orchestrator + research context)
-    G-->>API: { executiveSummary, pricingStrategy,<br/>financialProjections[3yr], milestones[],<br/>fundingRequirements, riskMitigation[] }
-    API->>G: generateEmbedding(planContent)
-    API->>DB: memories.insertOne({ type:"business_plan" })
-    API->>DB: sessions.updateOne({ businessPlanResult, agentProgress.businessPlan:"done" })
-    API-->>FE: SSE: { agent:"businessPlan", status:"done" }
+    Note over API,G: Agent 3 — Business Plan
+    API->>G: generateWithGemini + orchestrator + research context
+    G-->>API: financialProjections, milestones, fundingRequirements
+    API->>G: generateEmbedding
+    API->>DB: memories.insertOne (type business_plan)
+    API->>DB: sessions.updateOne businessPlanResult
+    API-->>FE: SSE agent businessPlan done
 
-    Note over API,G: ── Agent 4: MVP Builder ──
-    API-->>FE: SSE log: "Generating MVP code..."
-    API->>G: generateTextWithGemini(prompt, plain-text mode)
-    G-->>API: JSON string with { repoName, codeFiles[], features[] }
-    Note over API: safeParseJson() → fallback skeleton if parse fails
-    API->>+GitLab: POST /api/v4/projects (create public repo)
-    GitLab-->>API: { id, web_url, default_branch }
-    loop Per code file (400ms delay between commits)
-        API->>GitLab: POST /repository/files/:path (commit)
-        API-->>FE: SSE log: "✓ server.js committed"
+    Note over API,G: Agent 4 — MVP Builder
+    API->>G: generateTextWithGemini (plain text mode)
+    G-->>API: JSON with repoName and codeFiles array
+    API->>GitLab: POST /api/v4/projects (create public repo)
+    loop Per code file with 400ms delay
+        API->>GitLab: POST /repository/files commit
+        API-->>FE: SSE log file committed
     end
-    API->>G: generateEmbedding(mvpContent)
-    API->>DB: memories.insertOne({ type:"mvp", gitlabUrl })
-    API->>DB: sessions.updateOne({ status:"completed", mvpResult, gitlabUrl })
-    API-->>FE: SSE: { type:"completed", memoryCount }
-    API-->>FE: SSE: { done: true }
+    API->>G: generateEmbedding
+    API->>DB: memories.insertOne (type mvp)
+    API->>DB: sessions.updateOne status completed
+    API-->>FE: SSE completed event
 ```
 
 ### Agent Output Schemas
@@ -226,32 +212,24 @@ interface OrchestratorResult {
   targetMarket: string;       // Specific customer segment
   valueProposition: string;   // Unique value delivered
   revenueModel: string;       // How the startup makes money
-  keyRisks: string[];         // ["Competition from Stripe...", ...]
-  techStack: string[];        // ["React", "Node.js", "Stripe API"]
-  nextSteps: string[];        // Prioritised action items
+  keyRisks: string[];
+  techStack: string[];
+  nextSteps: string[];
 }
 ```
 
 #### 🔬 Market Research Agent
 ```typescript
 interface ResearchResult {
-  marketSize: string;              // "$4.2B TAM"
-  marketGrowthRate: string;        // "18% CAGR"
+  marketSize: string;          // "$4.2B TAM"
+  marketGrowthRate: string;    // "18% CAGR"
   marketTrends: string[];
-  competitors: Competitor[];       // 3-5 real competitors
+  competitors: Competitor[];   // 3-5 real competitors with strengths/weaknesses
   competitiveAdvantage: string;
   targetCustomerInsights: string;
-  keyInsights: string[];           // Each saved as separate memory vector
+  keyInsights: string[];       // Each saved as a separate memory vector
   goToMarketStrategy: string;
   regulatoryConsiderations: string;
-}
-
-interface Competitor {
-  name: string;
-  description: string;
-  strengths: string[];
-  weaknesses: string[];
-  fundingStage: string;   // "Seed" | "Series A" | "Public" | ...
 }
 ```
 
@@ -260,25 +238,12 @@ interface Competitor {
 interface BusinessPlanResult {
   executiveSummary: string;
   missionStatement: string;
-  productDescription: string;
-  businessModel: string;
   pricingStrategy: string;
-  salesStrategy: string;
-  marketingStrategy: string;
-  operationalPlan: string;
-  teamRequirements: string[];
-  financialProjections: FinancialProjection[];   // 3-year forecast
+  financialProjections: { year: number; revenue: string; users: string; burnRate: string }[];
   fundingRequirements: string;
   useOfFunds: string[];
   milestones: { timeline: string; milestone: string }[];
   riskMitigation: { risk: string; mitigation: string }[];
-}
-
-interface FinancialProjection {
-  year: number;       // 1 | 2 | 3
-  revenue: string;    // "$240K"
-  users: string;      // "1,200"
-  burnRate: string;   // "$18K/month"
 }
 ```
 
@@ -290,16 +255,9 @@ interface MvpResult {
   techStack: string[];
   architecture: string;
   features: string[];
-  codeFiles: CodeFile[];      // README.md, package.json, server.js, ...
+  codeFiles: { filename: string; language: string; content: string; description: string }[];
   setupInstructions: string[];
   gitlabUrl: string | null;   // null if GITLAB_TOKEN not set
-}
-
-interface CodeFile {
-  filename: string;    // "server.js"
-  language: string;   // "javascript"
-  content: string;
-  description: string;
 }
 ```
 
@@ -312,34 +270,18 @@ The `/api/sessions/:id/run` endpoint responds with `Content-Type: text/event-str
 ### Event Types
 
 ```typescript
-// Session started
-{ type: "started", sessionId: string }
-
-// Agent status change (used to update progress indicators)
-{ agent: "orchestrator"|"research"|"businessPlan"|"mvpBuilder",
-  status: "running"|"done"|"failed",
-  ...agentResult? }
-
-// Live log line from inside an agent (shown in the log panel)
-{ type: "log", agent: string, message: string, ts: number }
-
-// All agents finished successfully
+{ type: "started",   sessionId: string }
+{ type: "log",       agent: string, message: string, ts: number }
+{ agent: "orchestrator" | "research" | "businessPlan" | "mvpBuilder",
+  status: "running" | "done" | "failed" }
 { type: "completed", sessionId: string, memoryCount: number }
-
-// Unrecoverable error
-{ type: "error", message: string }
-
-// Stream is closing (always sent last)
+{ type: "error",     message: string }
 { done: true }
 ```
 
-### Frontend SSE Reader (Line-Buffered)
-
-Raw SSE chunks are not guaranteed to be one event per `read()` call. The frontend buffers partial lines to avoid JSON parse errors:
+### Frontend Line-Buffered Reader
 
 ```typescript
-// artifacts/founder-ai/src/pages/session-detail.tsx
-
 const reader = res.body!.getReader();
 const decoder = new TextDecoder();
 let buffer = "";
@@ -349,9 +291,8 @@ while (true) {
   if (done) break;
   buffer += decoder.decode(value, { stream: true });
 
-  // Process all complete lines in the buffer
   const lines = buffer.split("\n");
-  buffer = lines.pop()!;   // Keep the last (potentially incomplete) line
+  buffer = lines.pop()!;   // keep last incomplete line
 
   for (const line of lines) {
     if (!line.startsWith("data: ")) continue;
@@ -363,81 +304,69 @@ while (true) {
 }
 ```
 
-### Server-Side Abort Handling
-
-```typescript
-// artifacts/api-server/src/routes/sessions.ts
-
-const stoppedSessions = new Map<string, boolean>();
-
-// Browser closes tab → mark session aborted
-req.on("close", () => {
-  stoppedSessions.set(rawId, true);
-});
-
-// Checked between every agent
-const shouldAbort = () => stoppedSessions.get(rawId) === true;
-```
+### Session State Machine
 
 ```mermaid
 stateDiagram-v2
     [*] --> pending : Session created
     pending --> running : POST /run called
     running --> completed : All 4 agents succeed
-    running --> failed : Error thrown OR Stop clicked OR tab closed
-    failed --> running : POST /run again (smart resume)
+    running --> failed : Error OR Stop clicked OR tab closed
+    failed --> running : POST /run again smart resume
     completed --> [*]
     failed --> [*]
     pending --> [*] : Deleted
 
     note right of running
         Smart resume skips agents
-        where agentProgress = "done"
+        where agentProgress = done
     end note
+```
+
+### Server-Side Abort Handling
+
+```typescript
+const stoppedSessions = new Map<string, boolean>();
+
+// Browser closes tab → abort cleanly
+req.on("close", () => stoppedSessions.set(rawId, true));
+
+// Checked between every agent
+const shouldAbort = () => stoppedSessions.get(rawId) === true;
 ```
 
 ---
 
 ## Memory & Vector Search
 
-Every agent saves its output as a **memory record** in MongoDB Atlas. The content is first embedded with Gemini's `text-embedding-004` model (768-dimensional vectors), then stored alongside the raw text for hybrid search.
+Every agent saves its output as a **memory record** in MongoDB Atlas. The content is embedded with Gemini's `text-embedding-004` model (768-dimensional vectors), then stored alongside raw text for hybrid search.
 
 ### Memory Types
 
 | Type | Saved By | Metadata Fields |
 |---|---|---|
-| `orchestrator` | Orchestrator | `title`, `problemStatement` |
-| `research` | Market Research | `marketSize`, `competitorCount` |
-| `competitor` | Market Research | `competitorName`, `fundingStage` |
-| `insight` | Market Research | `source`, `startup` |
-| `business_plan` | Business Plan | `fundingRequirements`, `year1Revenue`, `missionStatement` |
-| `mvp` | MVP Builder | `repoName`, `gitlabUrl`, `fileCount`, `techStack` |
+| `orchestrator` | Orchestrator Agent | `title`, `problemStatement` |
+| `research` | Market Research Agent | `marketSize`, `competitorCount` |
+| `competitor` | Market Research Agent | `competitorName`, `fundingStage` |
+| `insight` | Market Research Agent | `source`, `startup` |
+| `business_plan` | Business Plan Agent | `fundingRequirements`, `year1Revenue`, `missionStatement` |
+| `mvp` | MVP Builder Agent | `repoName`, `gitlabUrl`, `fileCount`, `techStack` |
 
 ### Search Strategy
 
 ```mermaid
 flowchart TD
-    Q[User query text] --> EMB[generateEmbedding\nGemini text-embedding-004]
-    EMB --> VS{Atlas $vectorSearch\nvector_index available?}
-    VS -->|Yes| VR[Top-K results\nby cosine similarity\n+ vectorSearchScore]
-    VS -->|No / error| FT[Fallback: $text search\n+ sort by createdAt]
-    VR --> OUT[MemoryRecord[]]
+    Q["User query text"] --> EMB["generateEmbedding\nGemini text-embedding-004"]
+    EMB --> VS{"Atlas vectorSearch\navailable?"}
+    VS -->|Yes| VR["Top-K by cosine similarity\n+ vectorSearchScore"]
+    VS -->|No or error| FT["Fallback: full-text search\nsorted by createdAt"]
+    VR --> OUT["MemoryRecord[]"]
     FT --> OUT
 ```
 
-```typescript
-// Semantic recall — called from POST /api/memory/recall
-const results = await semanticSearch(
-  queryEmbedding,   // float[768]
-  limit,            // default 10
-  sessionId,        // optional — scope to one session
-  fallbackQuery     // original text for $text fallback
-);
-```
+### MongoDB Atlas Vector Index
 
-### MongoDB Atlas Vector Index Config
-
-Create this index on the `memories` collection in Atlas:
+Create this index on the `memories` collection:
 
 ```json
 {
@@ -456,7 +385,7 @@ Create this index on the `memories` collection in Atlas:
 }
 ```
 
-> **Note:** Atlas requires IP whitelisting. Add `0.0.0.0/0` to allow connections from Render's dynamic IPs, or set your specific egress range.
+> **Important:** Add `0.0.0.0/0` to Atlas Network Access to allow connections from Render's dynamic IPs.
 
 ---
 
@@ -468,34 +397,33 @@ Create this index on the `memories` collection in Atlas:
 |---|---|---|
 | Runtime | **Node.js 20+** | Native ESM, `--enable-source-maps` |
 | Framework | **Express 5** | Async error propagation built-in |
-| AI | **Google Gemini 2.5 Flash** (`@google/genai`) | Best speed/quality for structured JSON generation |
-| Embeddings | **text-embedding-004** (768-dim) | High-quality semantic vectors at low cost |
+| AI | **Google Gemini 2.5 Flash** | Best speed/quality for structured JSON generation |
+| Embeddings | **text-embedding-004** (768-dim) | High-quality semantic vectors |
 | Database | **MongoDB Atlas** | Native `$vectorSearch` aggregation stage |
 | Validation | **Zod** (via `@workspace/api-zod`) | Schema shared between API and codegen |
 | Logging | **Pino** | JSON structured logs, low overhead |
-| Build | **esbuild** (`build.mjs`) | Sub-second production bundles |
+| Build | **esbuild** | Sub-second production bundles |
 
 ### Frontend
 
 | Layer | Technology | Why |
 |---|---|---|
-| Framework | **React 19** | Concurrent rendering, Suspense |
-| Build | **Vite 6** | HMR, `BASE_URL` / `PORT` injection |
-| Routing | **Wouter** | 2 KB SPA router, no boilerplate |
+| Framework | **React 19** | Concurrent rendering |
+| Build | **Vite 6** | HMR, `BASE_URL` / `PORT` env injection |
+| Routing | **Wouter** | 2 KB SPA router |
 | Data fetching | **TanStack Query v5** | Auto-generated typed hooks via Orval |
-| UI system | **shadcn/ui** + **Radix UI** | Accessible, unstyled primitives |
+| UI system | **shadcn/ui + Radix UI** | Accessible, unstyled primitives |
 | Styling | **Tailwind CSS v4** | Utility-first, no runtime |
 | Animation | **Framer Motion** | Agent progress transitions |
-| Date formatting | **date-fns** | `formatDistanceToNow` for activity feed |
 
 ### Shared / Tooling
 
 | Package | Purpose |
 |---|---|
 | `@workspace/api-spec` | Single source of truth — `openapi.yaml` |
-| `@workspace/api-zod` | Zod schemas + TypeScript types generated from OpenAPI |
-| `@workspace/api-client-react` | Orval-generated React Query hooks (never write `fetch` manually) |
-| **pnpm workspaces** | Monorepo with shared `node_modules` hoisting |
+| `@workspace/api-zod` | Zod schemas + TypeScript types from OpenAPI |
+| `@workspace/api-client-react` | Orval-generated React Query hooks |
+| **pnpm workspaces** | Monorepo with shared `node_modules` |
 | **TypeScript 5** | Strict mode across all packages |
 
 ---
@@ -505,69 +433,57 @@ Create this index on the `memories` collection in Atlas:
 ```
 FounderAI/
 ├── artifacts/
-│   ├── api-server/                 # Express 5 backend
-│   │   ├── src/
-│   │   │   ├── index.ts            # Entry point — PORT defaults to 10000 (Render)
-│   │   │   ├── app.ts              # Express app factory + middleware
-│   │   │   ├── routes/
-│   │   │   │   ├── sessions.ts     # Core session CRUD + SSE /run + /stop
-│   │   │   │   └── memory.ts       # /recall + /list endpoints
-│   │   │   └── lib/
-│   │   │       ├── agents/
-│   │   │       │   ├── orchestrator.ts   # Agent 1 — idea decomposition
-│   │   │       │   ├── research.ts       # Agent 2 — market research
-│   │   │       │   ├── businessPlan.ts   # Agent 3 — investor plan
-│   │   │       │   └── mvpBuilder.ts     # Agent 4 — code gen + GitLab
-│   │   │       ├── gemini.ts       # Gemini wrapper with retry logic
-│   │   │       ├── memory.ts       # saveMemory / semanticSearch / listMemories
-│   │   │       ├── mongodb.ts      # Atlas connection + collection getters
-│   │   │       └── logger.ts       # Pino logger instance
-│   │   ├── build.mjs               # esbuild bundler script
-│   │   └── package.json
+│   ├── api-server/                   # Express 5 backend
+│   │   └── src/
+│   │       ├── index.ts              # Entry — PORT defaults to 10000 (Render)
+│   │       ├── app.ts                # Express factory + middleware
+│   │       ├── routes/
+│   │       │   ├── sessions.ts       # CRUD + SSE /run + /stop
+│   │       │   └── memory.ts         # /recall + /list
+│   │       └── lib/
+│   │           ├── agents/
+│   │           │   ├── orchestrator.ts   # Agent 1 — idea decomposition
+│   │           │   ├── research.ts       # Agent 2 — market research
+│   │           │   ├── businessPlan.ts   # Agent 3 — investor plan
+│   │           │   └── mvpBuilder.ts     # Agent 4 — code gen + GitLab
+│   │           ├── gemini.ts         # Wrapper with exponential backoff
+│   │           ├── memory.ts         # saveMemory / semanticSearch
+│   │           └── mongodb.ts        # Atlas connection + collections
 │   │
-│   └── founder-ai/                 # React + Vite frontend
-│       ├── src/
-│       │   ├── main.tsx            # Entry — sets API base URL from VITE_API_URL
-│       │   ├── App.tsx             # Wouter router
-│       │   ├── pages/
-│       │   │   ├── dashboard.tsx   # Stats + recent activity
-│       │   │   ├── sessions.tsx    # Sessions list + delete
-│       │   │   ├── new-session.tsx # Idea submission form
-│       │   │   ├── session-detail.tsx  # Live SSE + full agent results
-│       │   │   └── memory.tsx      # Vector search explorer
-│       │   └── components/
-│       │       ├── layout.tsx      # Sidebar nav + system status
-│       │       ├── status-badge.tsx
-│       │       └── ui/             # shadcn/ui components
-│       ├── vite.config.ts          # PORT + BASE_PATH from env (Replit-compatible)
-│       └── package.json
+│   └── founder-ai/                   # React + Vite frontend
+│       └── src/
+│           ├── pages/
+│           │   ├── dashboard.tsx     # Stats + recent activity
+│           │   ├── sessions.tsx      # List + delete
+│           │   ├── new-session.tsx   # Idea submission
+│           │   ├── session-detail.tsx  # Live SSE + results
+│           │   └── memory.tsx        # Vector search explorer
+│           └── components/
+│               ├── layout.tsx        # Sidebar nav + system status
+│               └── ui/               # shadcn/ui components
 │
 ├── lib/
-│   ├── api-spec/
-│   │   └── openapi.yaml            # OpenAPI 3.1 — single source of truth
-│   ├── api-zod/                    # Zod validators auto-generated by Orval
-│   │   └── src/generated/
-│   └── api-client-react/           # React Query hooks auto-generated by Orval
-│       └── src/generated/
+│   ├── api-spec/openapi.yaml         # Single source of truth
+│   ├── api-zod/                      # Zod validators (auto-generated)
+│   └── api-client-react/             # React Query hooks (auto-generated)
 │
-├── render.yaml                     # Render blueprint (API + static site)
-├── pnpm-workspace.yaml
-└── package.json
+├── render.yaml                       # Render deployment blueprint
+└── pnpm-workspace.yaml
 ```
 
 ---
 
 ## Data Models
 
-### Session Document (MongoDB)
+### Session Document
 
 ```typescript
 {
   _id: ObjectId,
-  title: string,                    // Set by Orchestrator ("MRR Tracker")
-  idea: string,                     // Original user input
+  title: string,           // Set by Orchestrator ("MRR Tracker")
+  idea: string,            // Original user input
   status: "pending" | "running" | "completed" | "failed",
-  createdAt: string,                // ISO-8601
+  createdAt: string,
   updatedAt: string | null,
   agentProgress: {
     orchestrator: "pending" | "running" | "done" | "failed",
@@ -584,18 +500,17 @@ FounderAI/
 }
 ```
 
-### Memory Document (MongoDB)
+### Memory Document
 
 ```typescript
 {
   _id: ObjectId,
-  sessionId: string,           // References sessions._id (as string)
-  type: "orchestrator" | "research" | "competitor" |
-        "insight" | "business_plan" | "mvp",
-  content: string,             // Human-readable text (used for $text fallback)
+  sessionId: string,
+  type: "orchestrator" | "research" | "competitor" | "insight" | "business_plan" | "mvp",
+  content: string,                    // Human-readable (used for $text fallback)
   metadata: Record<string, unknown>,  // Agent-specific key/value pairs
-  embedding: number[],         // 768-dimensional float vector
-  createdAt: string,           // ISO-8601
+  embedding: number[],                // 768-dimensional float vector
+  createdAt: string,
 }
 ```
 
@@ -609,78 +524,55 @@ Base path: `/api`
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/healthz` | Liveness check — returns `{ status: "ok" }` |
+| `GET` | `/healthz` | Liveness check → `{ status: "ok" }` |
 
 ### Sessions
 
 | Method | Path | Body / Params | Description |
 |---|---|---|---|
-| `GET` | `/sessions` | — | List all sessions (most recent first, limit 100) |
-| `POST` | `/sessions` | `{ idea: string }` | Create a new session (status: `pending`) |
-| `GET` | `/sessions/:id` | — | Full session detail including all agent results and `memoryCount` |
-| `DELETE` | `/sessions/:id` | — | Delete session; returns 409 if status is `running` |
-| `POST` | `/sessions/:id/run` | — | **SSE** — run all agents; streams events until complete |
-| `POST` | `/sessions/:id/stop` | — | Signal the running agent loop to abort |
-| `GET` | `/sessions/:id/status` | — | Lightweight status poll (`status` + `agentProgress`) |
+| `GET` | `/sessions` | — | List all sessions, newest first |
+| `POST` | `/sessions` | `{ idea: string }` | Create a session (`status: pending`) |
+| `GET` | `/sessions/:id` | — | Full detail + all agent results + `memoryCount` |
+| `DELETE` | `/sessions/:id` | — | Delete; returns 409 if status is `running` |
+| `POST` | `/sessions/:id/run` | — | **SSE** — run all 4 agents, streams events |
+| `POST` | `/sessions/:id/stop` | — | Signal agent loop to abort |
+| `GET` | `/sessions/:id/status` | — | Lightweight poll — `status` + `agentProgress` |
 
 ### Dashboard
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/dashboard/stats` | `{ totalSessions, completedSessions, totalMemories, gitlabRepos, recentSessions[] }` |
+| `GET` | `/dashboard/stats` | `totalSessions`, `completedSessions`, `totalMemories`, `gitlabRepos`, `recentSessions` |
 
 ### Memory
 
-| Method | Path | Body / Query | Description |
-|---|---|---|---|
-| `POST` | `/memory/recall` | `{ query, sessionId?, limit? }` | Semantic vector search; returns memories with `score` |
-| `GET` | `/memory/list` | `?sessionId=&type=&limit=` | List recent memories with optional filters |
+| Method | Path | Description |
+|---|---|---|
+| `POST` | `/memory/recall` | Semantic vector search → `{ query, sessionId?, limit? }` |
+| `GET` | `/memory/list` | Recent memories, optional `?sessionId=&type=&limit=` |
 
-### Status Codes
+### HTTP Status Codes
 
 | Code | Meaning |
 |---|---|
 | `200` | OK |
-| `201` | Created (new session) |
-| `400` | Bad request — Zod validation failed |
+| `201` | Created |
+| `400` | Zod validation failed |
 | `404` | Session not found |
-| `409` | Conflict — agents already running OR session is `running` on delete |
+| `409` | Conflict — agents running or delete blocked |
 | `500` | Internal server error |
 
 ---
 
 ## Frontend Pages
 
-### Dashboard (`/`)
-- Live stats: Total Sessions, Analyses Completed, Insights Memorized, Repos Generated
-- Recent Activity feed with status badges
-- System status indicator (MongoDB connection)
-- Auto-refreshes every 30 s via TanStack Query `refetchInterval`
-
-### Sessions (`/sessions`)
-- Full session list with status badges and timestamps
-- **Delete (×)** button with optimistic update (instant UI removal before API confirms)
-- Running sessions show a pulsing indicator; delete is blocked
-- Clicking a row navigates to the session detail page
-
-### New Analysis (`/new`)
-- Single textarea for the startup idea
-- Submit triggers `POST /api/sessions` → then redirects to the detail page and starts `/run` automatically
-- Loader spinner during pending state
-
-### Session Detail (`/sessions/:id`)
-- Agent progress tracker (4 steps, colour-coded: pending / running / done / failed)
-- **Live log panel** — real-time SSE log messages per agent
-- **Stop** button cancels the SSE reader and calls `POST /sessions/:id/stop`
-- **Retry** button (on failed sessions) restarts the run with smart resume
-- Four expandable result sections: Idea Analysis, Market Research, Business Plan, MVP
-- GitLab repo link when available
-
-### Memory Explorer (`/memory`)
-- Semantic search bar with 300 ms debounce
-- Shows matching memories with `score` (cosine similarity) for vector hits
-- Recent memories grid when no search active
-- Memory type badges: orchestrator / research / competitor / insight / business_plan / mvp
+| Page | Route | What It Does |
+|---|---|---|
+| **Dashboard** | `/` | Live stats, recent activity feed, MongoDB status indicator |
+| **Sessions** | `/sessions` | Full list, delete button (optimistic update), running indicator |
+| **New Analysis** | `/new` | Idea textarea, submit → auto-redirect + auto-start |
+| **Session Detail** | `/sessions/:id` | Agent progress tracker, live log panel, Stop/Retry, all results, GitLab link |
+| **Memory Explorer** | `/memory` | Semantic search with 300 ms debounce, score display, memory type badges |
 
 ---
 
@@ -688,10 +580,10 @@ Base path: `/api`
 
 ### Prerequisites
 
-- **Node.js 20+**
-- **pnpm 9+** (`npm install -g pnpm`)
-- A **Google Gemini API key** (free tier available at [aistudio.google.com](https://aistudio.google.com))
-- A **MongoDB Atlas** cluster (free M0 tier works)
+- Node.js 20+
+- pnpm 9+ (`npm install -g pnpm`)
+- Google Gemini API key — [aistudio.google.com](https://aistudio.google.com)
+- MongoDB Atlas cluster — free M0 tier works
 
 ### 1. Clone & Install
 
@@ -703,28 +595,28 @@ pnpm install
 
 ### 2. Set Environment Variables
 
-Copy the example and fill in the values:
-
 ```bash
-cp .env.example .env
-# Edit .env with your keys (see Environment Variables section)
+# Create .env in project root
+GEMINI_API_KEY=your_key_here
+MONGODB_URI=mongodb+srv://user:pass@cluster.mongodb.net/founderai
+GITLAB_TOKEN=glpat-xxxxxxxxxxxx
+GITLAB_USERNAME=your-gitlab-username
+SESSION_SECRET=any-long-random-string
 ```
 
 ### 3. Start Development Servers
 
-Open **two terminals**:
-
 ```bash
-# Terminal 1 — API server (port 8080 by default)
+# Terminal 1 — API (port 8080)
 pnpm --filter @workspace/api-server run dev
 
-# Terminal 2 — React frontend (port 5173 by default)
+# Terminal 2 — Frontend (port 5173)
 pnpm --filter @workspace/founder-ai run dev
 ```
 
-Open `http://localhost:5173` and start building your startup.
+Open `http://localhost:5173` and type your startup idea.
 
-### 4. (Optional) Run Type Checks
+### 4. Type Check
 
 ```bash
 pnpm --filter @workspace/api-server run typecheck
@@ -740,33 +632,30 @@ pnpm --filter @workspace/founder-ai run typecheck
 | Variable | Required | Description |
 |---|---|---|
 | `GEMINI_API_KEY` | ✅ | Google Gemini API key |
-| `MONGODB_URI` | ✅ | MongoDB Atlas connection string (`mongodb+srv://...`) |
-| `GITLAB_TOKEN` | ⚠️ | GitLab personal access token (MVP Builder skips repo creation if missing) |
-| `GITLAB_USERNAME` | ⚠️ | Your GitLab username (used with `GITLAB_TOKEN`) |
-| `SESSION_SECRET` | ✅ | Random secret for session signing (any long random string) |
-| `GITHUB_TOKEN` | Optional | Only needed if you push via shell scripts |
-| `PORT` | Optional | Defaults to `10000` (Render standard); override for local dev |
-| `NODE_ENV` | Optional | `"development"` or `"production"` |
+| `MONGODB_URI` | ✅ | MongoDB Atlas connection string |
+| `SESSION_SECRET` | ✅ | Random secret for session signing |
+| `GITLAB_TOKEN` | ⚠️ | GitLab PAT — skips repo creation if missing |
+| `GITLAB_USERNAME` | ⚠️ | Paired with `GITLAB_TOKEN` |
+| `PORT` | Optional | Defaults to `10000` (Render standard) |
+| `NODE_ENV` | Optional | `development` or `production` |
 
 ### Frontend
 
 | Variable | Required | Description |
 |---|---|---|
-| `VITE_API_URL` | Production only | Full URL of the deployed API, e.g. `https://founderai-api.onrender.com` |
+| `VITE_API_URL` | Production only | Full API URL e.g. `https://founderai-api.onrender.com` |
 
-> **Local dev:** The frontend proxies `/api` to `localhost:8080` via the Vite config — no `VITE_API_URL` needed.
+> Local dev: Vite proxies `/api` to `localhost:8080` — no `VITE_API_URL` needed.
 
 ---
 
 ## MongoDB Atlas Setup
 
-1. **Create a free M0 cluster** at [cloud.mongodb.com](https://cloud.mongodb.com)
-2. **Create a database** named `founderai`
-3. **Whitelist IPs**: Go to *Network Access* → *Add IP Address* → add `0.0.0.0/0` (allow all)
-4. **Create a database user** with read/write access — copy the password into your connection string
-5. **Create the Vector Index** on the `memories` collection:
-   - Go to *Atlas Search* → *Create Search Index* → *JSON Editor*
-   - Choose type **Vector Search** and paste:
+1. Create a free **M0 cluster** at [cloud.mongodb.com](https://cloud.mongodb.com)
+2. Create a database named `founderai`
+3. **Network Access** → Add `0.0.0.0/0` to allow Render's dynamic IPs
+4. Create a **database user** and copy the connection string
+5. Create the **Vector Index** on the `memories` collection (Atlas Search → JSON Editor):
 
 ```json
 {
@@ -785,153 +674,115 @@ pnpm --filter @workspace/founder-ai run typecheck
 }
 ```
 
-> If the vector index is unavailable (e.g. M0 doesn't support it in your region), FounderAI automatically falls back to MongoDB `$text` search — you won't see an error.
+> If the vector index is unavailable, FounderAI automatically falls back to `$text` search — no errors shown to the user.
 
 ---
 
 ## GitLab Integration
 
-The MVP Builder creates a **public GitLab repository** and commits all generated files automatically.
-
 ### Setup
 
 1. Go to [gitlab.com/-/profile/personal_access_tokens](https://gitlab.com/-/profile/personal_access_tokens)
 2. Create a token with scopes: `api`, `write_repository`
-3. Add to environment:
-   ```
-   GITLAB_TOKEN=glpat-xxxxxxxxxxxxxxxxxxxx
-   GITLAB_USERNAME=your-gitlab-username
-   ```
+3. Add `GITLAB_TOKEN` and `GITLAB_USERNAME` to your environment
 
 ### What Gets Committed
 
-For each generated `codeFiles` entry, the agent makes a separate API call:
+For each generated file, the MVP Builder calls:
 
 ```
 POST /api/v4/projects/:id/repository/files/:filepath
-{
-  branch: "main",
-  content: "<file content>",
-  commit_message: "feat: add server.js"
-}
+{ branch: "main", content: "...", commit_message: "feat: add server.js" }
 ```
 
-A 400 ms delay between commits avoids GitLab's concurrent write rate limit.
-
-If `GITLAB_TOKEN` is not set, the agent skips repo creation and still returns the MVP structure — only `gitlabUrl` will be `null`.
+A **400 ms delay** between commits avoids GitLab's concurrent write rate limit. If the token is missing, the MVP structure is still returned — only `gitlabUrl` will be `null`.
 
 ---
 
 ## Deployment on Render
 
-FounderAI ships with a `render.yaml` blueprint for one-click deployment on [Render](https://render.com) (free tier available).
+The project includes a `render.yaml` blueprint for one-click Render deployment.
 
-### Architecture on Render
+### Services Created
 
 ```
 render.yaml
-├── founderai-api        (Web Service — Node.js, port 10000)
-└── founderai-frontend   (Static Site — artifacts/founder-ai/dist/public)
+├── founderai-api        → Web Service (Node.js, port 10000)
+└── founderai-frontend   → Static Site (artifacts/founder-ai/dist/public)
 ```
 
-### Step-by-Step
+### Deployment Steps
 
-1. **Fork or push** this repo to your GitHub account
-2. Go to [dashboard.render.com](https://dashboard.render.com) → **New** → **Blueprint**
-3. Connect your GitHub repo — Render detects `render.yaml` automatically
-4. **Deploy `founderai-api` first** — wait for it to go live
-5. Copy the API URL (e.g. `https://founderai-api.onrender.com`)
-6. **Set environment secrets** in the Render dashboard for `founderai-api`:
+1. Push repo to GitHub
+2. Render Dashboard → **New** → **Blueprint** → connect your repo
+3. **Deploy `founderai-api` first** — wait for "Live" status
+4. Copy the API URL (e.g. `https://founderai-api.onrender.com`)
+5. Set these secrets on `founderai-api` in the Render dashboard:
 
-   | Key | Value |
-   |---|---|
-   | `GEMINI_API_KEY` | Your Gemini API key |
-   | `MONGODB_URI` | Your Atlas connection string |
-   | `GITLAB_TOKEN` | Your GitLab PAT |
-   | `GITLAB_USERNAME` | Your GitLab username |
-   | `SESSION_SECRET` | Any long random string |
+| Key | Value |
+|---|---|
+| `GEMINI_API_KEY` | Your Gemini key |
+| `MONGODB_URI` | Atlas connection string |
+| `SESSION_SECRET` | Any long random string |
+| `GITLAB_TOKEN` | Your GitLab PAT |
+| `GITLAB_USERNAME` | Your GitLab username |
+| `NODE_ENV` | `production` |
 
-7. **Set `VITE_API_URL`** on `founderai-frontend` to the API URL from step 5
-8. Deploy the frontend — Render builds and publishes to a global CDN
+6. Set `VITE_API_URL` on `founderai-frontend` → the API URL from step 4
+7. Deploy the frontend
 
-### Build Commands (what Render runs)
-
-```bash
-# API
-npm install -g pnpm && pnpm install && pnpm --filter @workspace/api-server run build
-node artifacts/api-server/dist/index.mjs
-
-# Frontend
-npm install -g pnpm && pnpm install && pnpm --filter @workspace/founder-ai run build
-# Static files served from: artifacts/founder-ai/dist/public
-```
-
-### Health Check
-
-Render pings `GET /api/healthz` every 30 s to verify the API is alive.
+Render pings `GET /api/healthz` every 30 s as a liveness check.
 
 ---
 
 ## Error Handling & Resilience
 
+### Gemini Retry with Exponential Backoff
+
 ```mermaid
 flowchart TD
-    CALL[Gemini API call] --> ERR{Error?}
-    ERR -->|No| SUCCESS[Return result]
-    ERR -->|Yes| RETRY{Is retryable?\n429 / 503 / UNAVAILABLE\n/ quota / overloaded}
-    RETRY -->|No| THROW[Throw — propagate to agent]
-    RETRY -->|Yes, attempt < 5| DELAY["Wait: 2^attempt × 2s\n(max 20s)"]
+    CALL["Gemini API call"] --> ERR{"Error?"}
+    ERR -->|No| SUCCESS["Return result"]
+    ERR -->|Yes| RETRY{"Retryable?\n429 / 503 / UNAVAILABLE\nquota / overloaded"}
+    RETRY -->|No| THROW["Throw — fail the agent"]
+    RETRY -->|"Yes, attempt < 5"| DELAY["Wait 2^attempt × 2s (max 20s)"]
     DELAY --> CALL
-    RETRY -->|Yes, attempt ≥ 5| THROW
+    RETRY -->|"attempt >= 5"| THROW
 ```
 
-### Retry Policy
-
-| Attempt | Delay |
+| Attempt | Wait |
 |---|---|
-| 1 | 2 s |
-| 2 | 4 s |
-| 3 | 8 s |
-| 4 | 16 s |
-| 5 (max) | Error thrown |
+| 1st retry | 2 s |
+| 2nd retry | 4 s |
+| 3rd retry | 8 s |
+| 4th retry | 16 s |
+| 5th retry | Error thrown |
 
-### MVP Builder Fallback
+### MVP Builder JSON Fallback
 
-If Gemini returns malformed JSON for the MVP structure (code generation is less deterministic than analysis), `safeParseJson()` attempts to extract the outermost `{ ... }` block and parse it. If that also fails, a deterministic **fallback skeleton** is returned:
-
-```
-fallback: README.md + package.json + server.js
-         (Express health-check app with the startup name)
-```
-
-This means the GitLab commit always succeeds, even if Gemini's JSON is unusable.
+If Gemini returns malformed JSON, `safeParseJson()` strips markdown fences and extracts the outermost `{...}` block. If that also fails, a **deterministic fallback skeleton** is used (README + package.json + Express server), so the GitLab commit always succeeds.
 
 ### Stop / Abort Safety
 
-The `stoppedSessions` in-memory Map is the shared abort channel between the HTTP `/stop` endpoint and the SSE agent loop. The loop checks `shouldAbort()` at every agent boundary. On tab close, `req.on('close')` sets the flag, so no orphaned Gemini calls accumulate after the user navigates away.
+The `stoppedSessions` Map is the shared abort channel between `POST /stop`, `req.on('close')` (tab closed), and the agent loop. The loop calls `shouldAbort()` before every agent — no orphaned Gemini calls after disconnect.
 
 ---
 
 ## OpenAPI Contract-First Design
 
-The entire API surface is defined in **one file**: `lib/api-spec/openapi.yaml`. Two packages are auto-generated from it:
-
 ```mermaid
 flowchart LR
-    SPEC[lib/api-spec/openapi.yaml\nOpenAPI 3.1] -->|Orval codegen| ZOD[lib/api-zod\nZod schemas\n+ TypeScript types]
-    SPEC -->|Orval codegen| RQ[lib/api-client-react\nReact Query hooks\n+ typed fetch clients]
-    ZOD -->|imported by| API[api-server\nreq/res validation]
-    RQ -->|imported by| FE[founder-ai\nno manual fetch code]
+    SPEC["lib/api-spec/openapi.yaml"] -->|Orval codegen| ZOD["lib/api-zod\nZod schemas + TS types"]
+    SPEC -->|Orval codegen| RQ["lib/api-client-react\nReact Query hooks"]
+    ZOD -->|req/res validation| API["api-server"]
+    RQ -->|typed data fetching| FE["founder-ai frontend"]
 ```
 
 **Adding a new endpoint:**
-
-1. Define the path + schema in `openapi.yaml`
-2. Run `pnpm run codegen` (in `lib/api-zod` and `lib/api-client-react`)
-3. Implement the Express route using the generated Zod schema for validation
+1. Define path + schema in `openapi.yaml`
+2. Run `pnpm run codegen` in `lib/api-zod` and `lib/api-client-react`
+3. Implement the Express route using the generated Zod schema
 4. The frontend hook is immediately available with full TypeScript types
-
-This eliminates drift between backend contract and frontend consumption — if the API shape changes, the frontend won't compile until it's updated to match.
 
 ---
 
@@ -941,7 +792,7 @@ This eliminates drift between backend contract and frontend consumption — if t
 # Fork → clone → branch
 git checkout -b feat/your-feature
 
-# Make changes, then:
+# Make changes, verify types
 pnpm --filter @workspace/api-server run typecheck
 pnpm --filter @workspace/founder-ai run typecheck
 
@@ -955,19 +806,18 @@ git push origin feat/your-feature
 
 | Convention | Detail |
 |---|---|
-| **Agents** | Each agent must accept `onLog?: (msg: string) => void` and call it at key steps |
-| **Memory** | Every new agent type should save at least one embedding to `memories` |
-| **Validation** | New routes must use the Zod schema from `@workspace/api-zod`, never ad-hoc validation |
-| **Errors** | Throw descriptive `Error("Agent X: reason")` — never swallow errors silently |
-| **Retries** | Any new Gemini call should go through `generateWithGemini` or `generateTextWithGemini`, not `ai.models` directly |
+| **Agents** | Must accept `onLog?: (msg: string) => void` and call it at key steps |
+| **Memory** | Every new agent type saves at least one embedding to `memories` |
+| **Validation** | New routes use Zod schema from `@workspace/api-zod`, never ad-hoc validation |
+| **Errors** | Throw descriptive `Error("Agent X: reason")` — never swallow silently |
+| **Retries** | New Gemini calls go through `generateWithGemini` or `generateTextWithGemini` |
 
 ---
 
 <div align="center">
 
-Built with ❤️ using Google Gemini 2.5 Flash · MongoDB Atlas · React · Express
+Built with Google Gemini 2.5 Flash · MongoDB Atlas · React · Express
 
 **[⭐ Star on GitHub](https://github.com/muhammad-hameed-ai/FounderAI)**
 
 </div>
-]]>
