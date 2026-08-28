@@ -75,7 +75,7 @@ The entire process streams live log events to the browser via **Server-Sent Even
 |---|---|
 | 🤖 **4-Agent Pipeline** | Orchestrator → Market Research → Business Plan → MVP Builder |
 | 📡 **Live SSE Streaming** | Real-time agent logs streamed to the browser, line-buffered for reliability |
-| 🧠 **Vector Memory** | Every agent output embedded with `text-embedding-004` and stored in MongoDB Atlas |
+| 🧠 **Vector Memory** | Every agent output embedded with Gemini Embedding (`gemini-embedding-001`, 768 dimensions) and stored in MongoDB Atlas |
 | 🔍 **Semantic Search** | Ask questions across all past sessions; falls back to full-text search if vector index unavailable |
 | 🦊 **GitLab Auto-Commit** | MVP Builder creates a public repo and commits generated files via GitLab API |
 | ⏸ **Stop / Resume** | Stop a running session mid-pipeline; retry picks up from the last completed agent |
@@ -119,7 +119,7 @@ graph TB
     subgraph Gemini["Google Gemini 2.5 Flash"]
         GEN["generateWithGemini JSON mode"]
         TEXT["generateTextWithGemini Text mode"]
-        EMBED["text-embedding-004 768-dim vectors"]
+        EMBED["gemini-embedding-001 768-dim vectors"]
     end
 
     subgraph Storage["MongoDB Atlas"]
@@ -339,7 +339,7 @@ const shouldAbort = () => stoppedSessions.get(rawId) === true;
 
 ## Memory & Vector Search
 
-Every agent saves its output as a **memory record** in MongoDB Atlas. The content is embedded with Gemini's `text-embedding-004` model (768-dimensional vectors), then stored alongside raw text for hybrid search.
+Every agent saves its output as a **memory record** in MongoDB Atlas. The content is embedded with Gemini's `gemini-embedding-001` model using a 768-dimensional output, then stored alongside raw text for hybrid search.
 
 ### Memory Types
 
@@ -356,7 +356,7 @@ Every agent saves its output as a **memory record** in MongoDB Atlas. The conten
 
 ```mermaid
 flowchart TD
-    Q["User query text"] --> EMB["generateEmbedding\nGemini text-embedding-004"]
+    Q["User query text"] --> EMB["generateEmbedding\nGemini gemini-embedding-001"]
     EMB --> VS{"Atlas vectorSearch\navailable?"}
     VS -->|Yes| VR["Top-K by cosine similarity\n+ vectorSearchScore"]
     VS -->|No or error| FT["Fallback: full-text search\nsorted by createdAt"]
@@ -398,7 +398,7 @@ Create this index on the `memories` collection:
 | Runtime | **Node.js 20+** | Native ESM, `--enable-source-maps` |
 | Framework | **Express 5** | Async error propagation built-in |
 | AI | **Google Gemini 2.5 Flash** | Best speed/quality for structured JSON generation |
-| Embeddings | **text-embedding-004** (768-dim) | High-quality semantic vectors |
+| Embeddings | **gemini-embedding-001** (768-dim) | High-quality semantic vectors |
 | Database | **MongoDB Atlas** | Native `$vectorSearch` aggregation stage |
 | Validation | **Zod** (via `@workspace/api-zod`) | Schema shared between API and codegen |
 | Logging | **Pino** | JSON structured logs, low overhead |
@@ -507,7 +507,7 @@ FounderAI/
   _id: ObjectId,
   sessionId: string,
   type: "orchestrator" | "research" | "competitor" | "insight" | "business_plan" | "mvp",
-  content: string,                    // Human-readable (used for $text fallback)
+  content: string,                    // Human-readable (used for keyword fallback)
   metadata: Record<string, unknown>,  // Agent-specific key/value pairs
   embedding: number[],                // 768-dimensional float vector
   createdAt: string,
@@ -632,6 +632,7 @@ pnpm --filter @workspace/founder-ai run typecheck
 | Variable | Required | Description |
 |---|---|---|
 | `GEMINI_API_KEY` | ✅ | Google Gemini API key |
+| `GEMINI_EMBEDDING_MODEL` | Optional | Embedding model override; defaults to `gemini-embedding-001` |
 | `MONGODB_URI` | ✅ | MongoDB Atlas connection string |
 | `SESSION_SECRET` | ✅ | Random secret for session signing |
 | `GITLAB_TOKEN` | ⚠️ | GitLab PAT — skips repo creation if missing |
@@ -674,7 +675,7 @@ pnpm --filter @workspace/founder-ai run typecheck
 }
 ```
 
-> If the vector index is unavailable, FounderAI automatically falls back to `$text` search — no errors shown to the user.
+> If the vector index or embedding API is unavailable, FounderAI automatically falls back to case-insensitive keyword search — no errors shown to the user.
 
 ---
 

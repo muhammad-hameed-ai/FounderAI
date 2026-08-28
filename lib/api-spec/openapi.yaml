@@ -100,6 +100,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/DeleteResult"
+        "409":
+          description: Cannot delete a running session
 
   /sessions/{id}/run:
     post:
@@ -134,6 +136,29 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/AgentStatus"
+
+  /sessions/{id}/stop:
+    post:
+      operationId: stopAgents
+      tags: [agents]
+      summary: Stop a running agent pipeline
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Agent run stopped
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeleteResult"
+        "404":
+          description: Session not found
+        "409":
+          description: Session is not currently running
 
   /memory/recall:
     post:

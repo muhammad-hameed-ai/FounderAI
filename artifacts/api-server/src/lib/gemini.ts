@@ -10,6 +10,7 @@ if (!apiKey) {
 export const ai = new GoogleGenAI({ apiKey });
 
 const MODEL = "gemini-2.5-flash";
+const EMBEDDING_MODEL = process.env.GEMINI_EMBEDDING_MODEL ?? "gemini-embedding-001";
 const MAX_ATTEMPTS = 5;
 
 function isRetryableError(err: unknown): boolean {
@@ -94,8 +95,11 @@ export async function generateEmbedding(text: string): Promise<number[]> {
   while (attempts < MAX_ATTEMPTS) {
     try {
       const response = await ai.models.embedContent({
-        model: "text-embedding-004",
+        model: EMBEDDING_MODEL,
         contents: [{ role: "user", parts: [{ text }] }],
+        config: {
+          outputDimensionality: 768,
+        },
       });
       const embedding = response.embeddings?.[0]?.values;
       if (!embedding) {

@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { semanticSearch, listMemories } from "../lib/memory";
+import { semanticSearch, listMemories, fallbackTextSearch } from "../lib/memory";
 import { generateEmbedding } from "../lib/gemini";
 import {
   RecallMemoryBody,
@@ -28,7 +28,7 @@ router.post("/memory/recall", async (req, res): Promise<void> => {
       results = await semanticSearch(embedding, limit ?? 10, sessionId ?? undefined, query);
     } catch (embeddingErr) {
       logger.warn({ embeddingErr }, "Embedding failed, using text search");
-      results = await listMemories(sessionId ?? undefined, undefined, limit ?? 10);
+      results = await fallbackTextSearch(query, limit ?? 10, sessionId ?? undefined);
     }
 
     res.json(RecallMemoryResponse.parse(results));

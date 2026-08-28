@@ -77,6 +77,9 @@ export async function semanticSearch(
     ];
 
     const results = await collection.aggregate(pipeline).toArray();
+    if (results.length === 0 && fallbackQuery) {
+      return fallbackTextSearch(fallbackQuery, limit, sessionId);
+    }
     return results.map((r) => ({
       id: r._id.toString(),
       sessionId: r.sessionId,
@@ -101,7 +104,18 @@ export async function fallbackTextSearch(
   const collection = await getMemoriesCollection();
   const filter: Record<string, unknown> = {};
   if (sessionId) filter.sessionId = sessionId;
-  if (query) filter.$text = { $search: query };
+
+  // Avoid requiring a separately-created MongoDB text index. This fallback
+  // must work on a fresh Atlas collection when vector search is unavailable.
+  const terms = query.trim().split(/\s+/).filter(Boolean).slice(0, 12);
+  if (terms.length > 0) {
+    const escapedTerms = terms.map((term) =>
+      term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+    );
+    filter.$or = escapedTerms.map((term) => ({
+      content: { $regex: term, $options: "i" },
+    }));
+  }
 
   const results = await collection
     .find(filter)

@@ -333,6 +333,11 @@ router.post("/sessions/:id/stop", async (req, res): Promise<void> => {
     return;
   }
 
+  if (doc.status !== "running") {
+    res.status(409).json({ error: `Cannot stop a session with status "${doc.status}".` });
+    return;
+  }
+
   // Signal the running agent loop to stop at the next checkpoint.
   stoppedSessions.set(rawId, true);
 

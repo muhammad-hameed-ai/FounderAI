@@ -138,10 +138,12 @@ async function commitFileToGitlab(
   if (!token) return false;
 
   try {
+    // The repository is initialized with a README in createGitlabRepo, so
+    // update that existing file instead of trying to create it again.
     const response = await fetch(
       `https://gitlab.com/api/v4/projects/${projectId}/repository/files/${encodeURIComponent(filePath)}`,
       {
-        method: "POST",
+        method: filePath === "README.md" ? "PUT" : "POST",
         headers: { "PRIVATE-TOKEN": token, "Content-Type": "application/json" },
         body: JSON.stringify({
           branch,
