@@ -9,7 +9,7 @@ if (!apiKey) {
 
 export const ai = new GoogleGenAI({ apiKey });
 
-const MODEL = "gemini-2.5-flash";
+const MODEL = "gemini-3.6-flash";
 const EMBEDDING_MODEL = process.env.GEMINI_EMBEDDING_MODEL ?? "gemini-embedding-001";
 const MAX_ATTEMPTS = 5;
 
