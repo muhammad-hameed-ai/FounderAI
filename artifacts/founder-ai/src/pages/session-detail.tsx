@@ -5,6 +5,7 @@ import {
   useListMemories,
   getListMemoriesQueryKey,
   getGetDashboardStatsQueryKey,
+  getBaseUrl,
 } from "@workspace/api-client-react";
 import { useParams } from "wouter";
 import { useState, useEffect, useRef } from "react";
@@ -50,6 +51,7 @@ export default function SessionDetail() {
   const logEndRef = useRef<HTMLDivElement>(null);
   // Keep a ref to the SSE reader so Stop can abort it immediately.
   const readerRef = useRef<ReadableStreamDefaultReader<Uint8Array> | null>(null);
+  const apiPath = (path: string) => `${getBaseUrl() ?? ""}${path}`;
 
   const { data: session, isLoading, isError } = useGetSession(id, {
     query: {
@@ -87,7 +89,7 @@ export default function SessionDetail() {
     toast({ title: "Agents Starting", description: "FounderAI is initializing all agents..." });
 
     try {
-      const response = await fetch(`/api/sessions/${id}/run`, {
+      const response = await fetch(apiPath(`/api/sessions/${id}/run`), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
       });
@@ -159,7 +161,7 @@ export default function SessionDetail() {
       readerRef.current?.cancel().catch(() => {});
       readerRef.current = null;
 
-      await fetch(`/api/sessions/${id}/stop`, { method: "POST" });
+      await fetch(apiPath(`/api/sessions/${id}/stop`), { method: "POST" });
       toast({ title: "Stopped", description: "Agent run was stopped." });
       setIsRunning(false);
       queryClient.invalidateQueries({ queryKey: getGetSessionQueryKey(id) });
