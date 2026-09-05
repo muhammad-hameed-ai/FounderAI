@@ -1,9 +1,9 @@
+import "dotenv/config";
 import app from "./app";
 import { logger } from "./lib/logger";
 
-// Render injects PORT automatically; default to 10000 (Render's standard port)
-// so the server starts correctly in all environments.
-const rawPort = process.env["PORT"] ?? "10000";
+// Hosts such as Render inject PORT. Local development uses 8080 by default.
+const rawPort = process.env["PORT"] ?? "8080";
 const port = Number(rawPort);
 
 if (Number.isNaN(port) || port <= 0) {

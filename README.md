@@ -14,7 +14,7 @@
 
 **Drop a one-sentence startup idea → get back a full market research report, an investor-ready business plan, and working MVP code committed to GitLab — all powered by a multi-agent AI pipeline running in real-time.**
 
-[Quick Start](#quick-start) • [Architecture](#architecture-overview) • [API Reference](#api-reference) • [Deployment](#deployment-on-render)
+[Quick Start](#quick-start) • [Local Standalone Use](#local-standalone-use) • [Architecture](#architecture-overview) • [API Reference](#api-reference) • [Deployment](#deployment-on-render)
 
 </div>
 
@@ -34,13 +34,14 @@
 10. [API Reference](#api-reference)
 11. [Frontend Pages](#frontend-pages)
 12. [Quick Start](#quick-start)
-13. [Environment Variables](#environment-variables)
-14. [MongoDB Atlas Setup](#mongodb-atlas-setup)
-15. [GitLab Integration](#gitlab-integration)
-16. [Deployment on Render](#deployment-on-render)
-17. [Error Handling & Resilience](#error-handling--resilience)
-18. [OpenAPI Contract-First Design](#openapi-contract-first-design)
-19. [Contributing](#contributing)
+13. [Local Standalone Use](#local-standalone-use)
+14. [Environment Variables](#environment-variables)
+15. [MongoDB Atlas Setup](#mongodb-atlas-setup)
+16. [GitLab Integration](#gitlab-integration)
+17. [Deployment on Render](#deployment-on-render)
+18. [Error Handling & Resilience](#error-handling--resilience)
+19. [OpenAPI Contract-First Design](#openapi-contract-first-design)
+20. [Contributing](#contributing)
 
 ---
 
@@ -625,6 +626,49 @@ pnpm --filter @workspace/founder-ai run typecheck
 
 ---
 
+## Local Standalone Use
+
+FounderAI does not require Replit. The repository contains the complete source,
+workspace configuration, generated API client, database code, and deployment
+blueprint needed to run it on a normal Node.js machine.
+
+### One-command local development
+
+```bash
+corepack enable
+corepack prepare pnpm@10.26.1 --activate
+pnpm install
+cp .env.example .env
+# Edit .env and add your Gemini, MongoDB, GitLab, and session values.
+pnpm dev
+```
+
+The combined command starts:
+
+- Frontend: `http://localhost:5173`
+- API: `http://localhost:8080`
+- Local Vite proxy: `/api` → `http://localhost:8080`
+
+You can also run the services separately with `pnpm dev:api` and
+`pnpm dev:web`. The API loads `.env` automatically through `dotenv`; do not
+commit `.env`.
+
+### GitHub is source hosting, not full-stack hosting
+
+GitHub can keep the project source and run CI, but GitHub Pages cannot run the
+Express API, Gemini calls, MongoDB access, SSE streams, or GitLab publishing.
+For the complete working application, use:
+
+1. **GitHub** for the permanent source repository.
+2. **MongoDB Atlas** for persistent data and vector search.
+3. **Render or another Node.js host** for the API and static frontend.
+
+The included `render.yaml` deploys both application services. GitHub Pages is
+only suitable for a static frontend and would still need a separately hosted
+API configured through `VITE_API_URL`.
+
+---
+
 ## Environment Variables
 
 ### API Server
@@ -637,7 +681,7 @@ pnpm --filter @workspace/founder-ai run typecheck
 | `SESSION_SECRET` | ✅ | Random secret for session signing |
 | `GITLAB_TOKEN` | ⚠️ | GitLab PAT — skips repo creation if missing |
 | `GITLAB_USERNAME` | ⚠️ | Paired with `GITLAB_TOKEN` |
-| `PORT` | Optional | Defaults to `10000` (Render standard) |
+| `PORT` | Optional | Defaults to `8080` locally; Render supplies `10000` |
 | `NODE_ENV` | Optional | `development` or `production` |
 
 ### Frontend
