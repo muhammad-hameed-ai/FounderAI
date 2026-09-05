@@ -778,6 +778,15 @@ render.yaml
 
 Render pings `GET /api/healthz` every 30 s as a liveness check.
 
+### Rollback
+
+Render keeps each service's previous deploy available. To roll back a release,
+open the affected service in Render, select **Deploys**, open the last known
+good deploy, and choose **Rollback**. Roll back the API before the frontend if
+the release changed the API contract. For a source-controlled rollback,
+revert the release commit on `main` and let Render's GitHub auto-deploy create
+a new deploy; do not force-push `main`.
+
 ---
 
 ## Error Handling & Resilience
